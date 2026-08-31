@@ -11,6 +11,15 @@ import {
   dataDesde,
   DadoGestao,
 } from "../report/gestao.js";
+import {
+  contextoEmpresa,
+  contextoColaborador,
+  sugestoesEmpresa,
+  sugestoesColaborador,
+  formatarSugestoes,
+} from "../ai/Sugestoes.js";
+import { LLMProvider } from "../ai/LLMProvider.js";
+import { redigirPergunta } from "../ai/Dialogo.js";
 
 // --- Aderência: compara check_out (concluídas/pendentes) com check_in (planejadas) ---
 export interface Aderencia {
@@ -176,25 +185,134 @@ type Flow = CheckInFlow | CheckOutFlow;
 export interface BotOptions {
   /** IDs de quem pode ver /relatorio e recebe alertas proativos de pendência. */
   gestaoIds?: string[];
+  /** Lista fixa de IDs de colaboradores que recebem os envios automáticos dos turnos. */
+  funcionariosIds?: string[];
   /** Identificador do tenant (multi-tenant). Padrão: "codxis". */
   tenantId?: string;
+  /** Provedor LLM para as sugestões inteligentes. Sem key, usa fallback por regras. */
+  llm?: LLMProvider | null;
+  /** Envia sugestões proativas após interações relevantes (check-out, /hoje). Padrão: true. */
+  sugestoesProativas?: boolean;
 }
 
 export class CheckInBot {
   private flows = new Map<string, Flow>();
   private gestaoIds: Set<string>;
+  private funcionariosIds: Set<string>;
   private tenantId: string;
+  private llm: LLMProvider | null;
+  private sugestoesProativas: boolean;
 
   constructor(
     private store: CheckInStore,
     private options: BotOptions = {}
   ) {
     this.gestaoIds = new Set(this.options.gestaoIds ?? []);
+    this.funcionariosIds = new Set(this.options.funcionariosIds ?? []);
     this.tenantId = this.options.tenantId ?? TENANT_DEFAULT;
+    this.llm =
+      this.options.llm === undefined ? new LLMProvider() : this.options.llm;
+    this.sugestoesProativas = this.options.sugestoesProativas ?? true;
   }
 
   onConnect(connector: ChannelConnector): void {
     connector.onMessage((msg) => this.handle(msg, connector));
+  }
+
+  /** Envia a pergunta de um tópico do fluxo, redigida pelo LLM (com fallback). */
+  private async perguntar(
+    sender: string,
+    connector: ChannelConnector,
+    topico: string,
+    contexto: string = ""
+  ): Promise<void> {
+    const pergunta = await redigirPergunta(topico, this.llm, contexto);
+    await connector.send({ to: sender, text: pergunta });
+  }
+
+  // --- Ações dos turnos automáticos (Scheduler) ---
+  private hoje(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  /** Turno manhã: lembra todos os colaboradores registrados de fazer o check-in. */
+  async lembrarCheckinTodos(connector: ChannelConnector): Promise<void> {
+    const colaboradores = [...this.funcionariosIds];
+    if (colaboradores.length === 0) return;
+    await Promise.all(
+      colaboradores.map((c) =>
+        connector.send({
+          to: c,
+          text:
+            "⏰ *Hora do check-in!*\n\n" +
+            "Registre suas tarefas de hoje para o gerente acompanhar.\n" +
+            "Envie /check-in ou digite suas tarefas.",
+        })
+      )
+    );
+  }
+
+  /** Turno tarde: cobra o check-in de quem ainda não registrou hoje. */
+  async cobrarCheckinNaoFeito(connector: ChannelConnector): Promise<void> {
+    const colaboradores = [...this.funcionariosIds];
+    const comCheckin = new Set(
+      await this.store.listarColaboradoresComCheckinNaData(
+        this.tenantId,
+        this.hoje()
+      )
+    );
+    const faltantes = colaboradores.filter((c) => !comCheckin.has(c));
+    if (faltantes.length === 0) return;
+    await Promise.all(
+      faltantes.map((c) =>
+        connector.send({
+          to: c,
+          text:
+            "⚠️ *Check-in pendente!*\n\n" +
+            "Você ainda não registrou suas tarefas de hoje.\n" +
+            "Envie /check-in para não perder o acompanhamento do dia.",
+        })
+      )
+    );
+  }
+
+  /**
+   * Turno fim do dia: cobra o check-out de quem ainda não fechou o dia e
+   * envia as sugestões (visão empresa) para a gestão. Usa a lista fixa.
+   */
+  async fecharDia(connector: ChannelConnector): Promise<void> {
+    const comCheckout = new Set(
+      await this.store.listarColaboradoresComCheckoutNaData(
+        this.tenantId,
+        this.hoje()
+      )
+    );
+    const semCheckout = [...this.funcionariosIds].filter(
+      (c) => !comCheckout.has(c)
+    );
+    await Promise.all(
+      semCheckout.map((c) =>
+        connector.send({
+          to: c,
+          text:
+            "🕒 *Hora do check-out!*\n\n" +
+            "Você fez o check-in hoje, mas ainda não fechou o dia.\n" +
+            "Envie /check-out com o que concluiu e o que ficou pendente.",
+        })
+      )
+    );
+
+    for (const gestor of this.gestaoIds) {
+      const ctx = await contextoEmpresa(this.store, this.tenantId);
+      const sugestoes = await sugestoesEmpresa(this.llm, ctx);
+      const msg = formatarSugestoes(
+        "🌙 *Fim do dia — próximos passos* (empresa):",
+        sugestoes
+      );
+      if (msg && this.sugestoesProativas) {
+        await connector.send({ to: gestor, text: msg });
+      }
+    }
   }
 
   private isGestao(sender: string): boolean {
@@ -241,13 +359,7 @@ export class CheckInBot {
           return;
         }
         this.flows.set(sender, { step: "checkin_tarefas" });
-        await connector.send({
-          to: sender,
-          text:
-            "Quais são suas tarefas para hoje?\n" +
-            "Digite uma por linha ou separadas por vírgula.\n" +
-            "Envie `cancelar` para desistir.",
-        });
+        await this.perguntar(sender, connector, "tarefas");
         return;
 
       case "/check-out":
@@ -271,13 +383,7 @@ export class CheckInBot {
           concluidas: [],
           pendentes: [],
         });
-        await connector.send({
-          to: sender,
-          text:
-            "O que você concluiu hoje?\n" +
-            "Digite uma por linha ou separadas por vírgula.\n" +
-            "Envie `nenhuma` se não concluiu nada.",
-        });
+        await this.perguntar(sender, connector, "concluidas");
         return;
 
       case "/hoje":
@@ -304,11 +410,15 @@ export class CheckInBot {
         }
         return;
 
+      case "/sugestoes":
+        await this.sendSugestoes(sender, connector);
+        return;
+
       default:
         await connector.send({
           to: sender,
           text:
-            "Comandos:\n/check-in — registrar tarefas do dia\n/check-out — fechar o dia\n/hoje — ver resumo de hoje\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
+            "Comandos:\n/check-in — registrar tarefas do dia\n/check-out — fechar o dia\n/hoje — ver resumo de hoje\n/sugestoes — próximos passos\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
         });
     }
   }
@@ -338,10 +448,7 @@ export class CheckInBot {
       flow.concluidas =
         msg.text.toLowerCase() === "nenhuma" ? [] : parseList(msg.text);
       flow.step = "checkout_pendentes";
-      await connector.send({
-        to: sender,
-        text: "O que ficou pendente?\n(envie `nenhuma` se concluiu tudo)",
-      });
+      await this.perguntar(sender, connector, "pendentes");
       return;
     }
 
@@ -353,10 +460,7 @@ export class CheckInBot {
         await this.finishCheckout(sender, flow, connector, null);
       } else {
         flow.step = "checkout_justificativa";
-        await connector.send({
-          to: sender,
-          text: "Por que essas pendências ocorreram?",
-        });
+        await this.perguntar(sender, connector, "justificativa");
       }
       return;
     }
@@ -400,6 +504,7 @@ export class CheckInBot {
     });
 
     await this.verificarEAlertarPendenciasRecorrentes(connector);
+    await this.enviarSugestoesProativas(sender, connector);
   }
 
   private async verificarEAlertarPendenciasRecorrentes(
@@ -424,6 +529,47 @@ export class CheckInBot {
 
   private async listarDadosGestao(desdeStr: string): Promise<DadoGestao[]> {
     return listarDadosGestaoGestao(this.store, this.tenantId, desdeStr);
+  }
+
+  /** Gera e envia sugestões sob demanda (/sugestoes). Foco conforme o remetente. */
+  private async sendSugestoes(
+    sender: string,
+    connector: ChannelConnector
+  ): Promise<void> {
+    if (this.isGestao(sender)) {
+      const ctx = await contextoEmpresa(this.store, this.tenantId);
+      const sugestoes = await sugestoesEmpresa(this.llm, ctx);
+      const msg = formatarSugestoes("🧭 *Sugestões do gerente* (empresa):", sugestoes);
+      await connector.send({ to: sender, text: msg || "Nenhuma sugestão no momento." });
+    } else {
+      const ctx = await contextoColaborador(this.store, this.tenantId, sender);
+      const sugestoes = await sugestoesColaborador(this.llm, ctx);
+      const msg = formatarSugestoes("🧭 *Sugestões do gerente*:", sugestoes);
+      await connector.send({ to: sender, text: msg || "Nenhuma sugestão no momento." });
+    }
+  }
+
+  /** Envia sugestões proativamente após interações relevantes (check-out, /hoje). */
+  private async enviarSugestoesProativas(
+    sender: string,
+    connector: ChannelConnector
+  ): Promise<void> {
+    if (!this.sugestoesProativas) return;
+
+    if (this.isGestao(sender)) {
+      const ctx = await contextoEmpresa(this.store, this.tenantId);
+      const sugestoes = await sugestoesEmpresa(this.llm, ctx);
+      const msg = formatarSugestoes(
+        "🧭 *Próximos passos sugeridos* (empresa):",
+        sugestoes
+      );
+      if (msg) await connector.send({ to: sender, text: msg });
+    } else {
+      const ctx = await contextoColaborador(this.store, this.tenantId, sender);
+      const sugestoes = await sugestoesColaborador(this.llm, ctx);
+      const msg = formatarSugestoes("🧭 *Próximos passos pra você*:", sugestoes);
+      if (msg) await connector.send({ to: sender, text: msg });
+    }
   }
 
   private async sendResumo(
@@ -459,6 +605,7 @@ export class CheckInBot {
     }
 
     await connector.send({ to: sender, text: msg });
+    await this.enviarSugestoesProativas(sender, connector);
   }
 
   private async sendRelatorio(

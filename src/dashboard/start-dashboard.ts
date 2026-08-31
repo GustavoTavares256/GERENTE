@@ -1,9 +1,10 @@
+import "dotenv/config";
 import { CheckInStore } from "../store/CheckInStore.js";
 import { startDashboard } from "./server.js";
 
 const databaseUrl =
   process.env.DATABASE_URL ??
-  "postgres://codxis:codxis@localhost:5432/codxis";
+  "postgres://codxis:codxis@localhost:5433/codxis";
 
 const store = await CheckInStore.connect(databaseUrl);
 const tenantId = process.env.TENANT_ID ?? "codxis";

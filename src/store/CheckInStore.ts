@@ -16,12 +16,12 @@ interface CheckInRow {
   id: string;
   tenant_id: string;
   colaborador_id: string;
-  data: string;
+  data: Date | string;
   tipo: "check_in" | "check_out";
   tarefas: unknown;
   pendentes: unknown;
   justificativa_pendencia: string | null;
-  criado_em: string;
+  criado_em: unknown;
 }
 
 const SCHEMA = `
@@ -46,17 +46,27 @@ function jsonText(v: unknown): string {
   return JSON.stringify(v ?? null);
 }
 
+function isoDate(v: unknown): string {
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v ?? "").slice(0, 10);
+}
+
+function isoDateTime(v: unknown): string {
+  if (v instanceof Date) return v.toISOString();
+  return String(v ?? "");
+}
+
 function toRecord(row: CheckInRow): CheckInRecord {
   return {
     id: Number(row.id),
     tenantId: row.tenant_id,
     colaboradorId: row.colaborador_id,
-    data: row.data.slice(0, 10),
+    data: isoDate(row.data),
     tipo: row.tipo,
     tarefas: jsonText(row.tarefas ?? "[]"),
     pendentes: row.pendentes == null ? null : jsonText(row.pendentes),
     justificativa_pendencia: row.justificativa_pendencia,
-    criadoEm: row.criado_em,
+    criadoEm: isoDateTime(row.criado_em),
   };
 }
 
@@ -80,6 +90,38 @@ export class CheckInStore {
 
   async close(): Promise<void> {
     await this.pool.end();
+  }
+
+  /** Apaga todos os registros (usado pelos testes para isolar cenários). */
+  async reset(): Promise<void> {
+    await this.pool.query("TRUNCATE checkins_diarios");
+  }
+
+  /** Insere um registro arbitrário (usado pelos testes para semear históricos). */
+  async seedRecord(input: {
+    tenantId: string;
+    colaboradorId: string;
+    data: string;
+    tipo: "check_in" | "check_out";
+    tarefas: string[];
+    pendentes?: string[];
+    justificativa?: string | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO checkins_diarios
+        (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        input.tenantId,
+        input.colaboradorId,
+        input.data,
+        input.tipo,
+        JSON.stringify(input.tarefas),
+        input.pendentes ? JSON.stringify(input.pendentes) : null,
+        input.justificativa ?? null,
+        input.data + "T18:00:00.000Z",
+      ]
+    );
   }
 
   private today(): string {
@@ -209,6 +251,36 @@ export class CheckInStore {
       `SELECT DISTINCT colaborador_id FROM checkins_diarios
        WHERE tenant_id = $1 ORDER BY colaborador_id`,
       [tenantId]
+    );
+    return (res.rows as Array<{ colaborador_id: string }>).map(
+      (r) => r.colaborador_id
+    );
+  }
+
+  /** Colaboradores que já fizeram check-in na data informada. */
+  async listarColaboradoresComCheckinNaData(
+    tenantId: string,
+    data: string
+  ): Promise<string[]> {
+    const res = await this.pool.query(
+      `SELECT DISTINCT colaborador_id FROM checkins_diarios
+       WHERE tenant_id = $1 AND tipo = 'check_in' AND data = $2`,
+      [tenantId, data]
+    );
+    return (res.rows as Array<{ colaborador_id: string }>).map(
+      (r) => r.colaborador_id
+    );
+  }
+
+  /** Colaboradores que já fizeram check-out na data informada. */
+  async listarColaboradoresComCheckoutNaData(
+    tenantId: string,
+    data: string
+  ): Promise<string[]> {
+    const res = await this.pool.query(
+      `SELECT DISTINCT colaborador_id FROM checkins_diarios
+       WHERE tenant_id = $1 AND tipo = 'check_out' AND data = $2`,
+      [tenantId, data]
     );
     return (res.rows as Array<{ colaborador_id: string }>).map(
       (r) => r.colaborador_id

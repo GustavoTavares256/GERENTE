@@ -11,6 +11,7 @@ import {
   IncomingMessage,
   OutgoingMessage,
 } from "../src/channel/ChannelConnector.js";
+import { connectTestStore } from "./helpers.js";
 
 function co(
   data: string,
@@ -104,155 +105,118 @@ function offsetDate(offsetDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-test("/relatorio: valida capacidade (tarefas) e alerta de pendência recorrente", async () => {
-  const store = new CheckInStore(":memory:");
-  const bot = new CheckInBot(store, { gestaoIds: ["gestor"] });
+async function newBot(gestaoIds: string[]): Promise<{ store: CheckInStore; bot: CheckInBot; conn: FakeConnector }> {
+  const store = await connectTestStore("pendencia");
+  const bot = new CheckInBot(store, { gestaoIds, llm: null });
   const conn = new FakeConnector();
   bot.onConnect(conn);
+  return { store, bot, conn };
+}
 
-  const db = (store as unknown as { db: import("better-sqlite3").Database }).db;
-  const insert = (
-    colaborador: string,
-    data: string,
-    tipo: string,
-    tarefas: string[],
-    pendentes: string[],
-    just: string | null
-  ) => {
-    db.prepare(
-      `INSERT INTO checkins_diarios (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      "codxis",
-      colaborador,
-      data,
-      tipo,
-      JSON.stringify(tarefas),
-      JSON.stringify(pendentes),
-      just,
-      data + "T20:00:00.000Z"
-    );
-  };
+test("/relatorio: valida capacidade (tarefas) e alerta de pendência recorrente", async () => {
+  const { store, conn } = await newBot(["gestor"]);
+  try {
+    for (const off of [-2, -1, 0]) {
+      const dia = offsetDate(off);
+      await store.seedRecord({ tenantId: "codxis", colaboradorId: "colab-teste", data: dia, tipo: "check_in", tarefas: ["T1", "T2", "T3"] });
+      await store.seedRecord({ tenantId: "codxis", colaboradorId: "colab-teste", data: dia, tipo: "check_out", tarefas: [], pendentes: ["Bug A"] });
+    }
+    // um dia extra (fora da janela contínua) com tudo concluído
+    const diaExtra = offsetDate(-4);
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "colab-teste", data: diaExtra, tipo: "check_in", tarefas: ["X"] });
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "colab-teste", data: diaExtra, tipo: "check_out", tarefas: ["X"] });
 
-  // 3 dias consecutivos com pendência 'Bug A' não justificada
-  for (const off of [-2, -1, 0]) {
-    const dia = offsetDate(off);
-    insert("colab-teste", dia, "check_in", ["T1", "T2", "T3"], [], null);
-    insert("colab-teste", dia, "check_out", [], ["Bug A"], null);
+    // segundo colaborador sem pendências recorrentes
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "colab-ok", data: offsetDate(0), tipo: "check_in", tarefas: ["Y"] });
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "colab-ok", data: offsetDate(0), tipo: "check_out", tarefas: ["Y"] });
+
+    await conn.say("/relatorio");
+    const msg = conn.sent[conn.sent.length - 1].text;
+
+    assert.match(msg, /colab-teste/);
+    assert.match(msg, /colab-ok/);
+
+    // capacidade do colab-teste: planejadas = 3+3+3+1 = 10, concluídas = 0+0+0+1 = 1 → aderência 10%
+    assert.match(msg, /planejadas 10, concluídas 1 \(aderência 10%\)/);
+
+    assert.match(msg, /Bug A/);
+    assert.match(msg, /Pendências recorrentes/);
+  } finally {
+    await store.close();
   }
-  // um dia extra (fora da janela contínua) com tudo concluído
-  const diaExtra = offsetDate(-4);
-  insert("colab-teste", diaExtra, "check_in", ["X"], [], null);
-  insert("colab-teste", diaExtra, "check_out", ["X"], [], null);
-
-  // segundo colaborador sem pendências recorrentes
-  insert("colab-ok", offsetDate(0), "check_in", ["Y"], [], null);
-  insert("colab-ok", offsetDate(0), "check_out", ["Y"], [], null);
-
-  await conn.say("/relatorio");
-  const msg = conn.sent[conn.sent.length - 1].text;
-
-  // agrega ambos os colaboradores
-  assert.match(msg, /colab-teste/);
-  assert.match(msg, /colab-ok/);
-
-  // capacidade do colab-teste: planejadas = 3+3+3+1 = 10, concluídas = 0+0+0+1 = 1 → aderência 10%
-  assert.match(msg, /planejadas 10, concluídas 1 \(aderência 10%\)/);
-
-  // pendência recorrente só do colab-teste
-  assert.match(msg, /Bug A/);
-  assert.match(msg, /Pendências recorrentes/);
 });
 
 test("/relatorio: bloqueia usuário que não é da gestão", async () => {
-  const store = new CheckInStore(":memory:");
-  const bot = new CheckInBot(store, { gestaoIds: ["gestor-admin"] });
-  const conn = new FakeConnector();
-  bot.onConnect(conn);
-
-  await conn.say("/relatorio");
-  assert.match(conn.sent[conn.sent.length - 1].text, /Acesso restrito à gestão/);
+  const { store, conn } = await newBot(["gestor-admin"]);
+  try {
+    await conn.say("/relatorio");
+    assert.match(conn.sent[conn.sent.length - 1].text, /Acesso restrito à gestão/);
+  } finally {
+    await store.close();
+  }
 });
 
 test("/exportar-csv: gestor recebe CSV com cabeçalho e dados", async () => {
-  const store = new CheckInStore(":memory:");
-  const bot = new CheckInBot(store, { gestaoIds: ["gestor"] });
-  const conn = new FakeConnector();
-  bot.onConnect(conn);
+  const { store, conn } = await newBot(["gestor"]);
+  try {
+    const dia = offsetDate(0);
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "ana", data: dia, tipo: "check_in", tarefas: ["T1", "T2"] });
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "ana", data: dia, tipo: "check_out", tarefas: ["T1"], pendentes: [] });
 
-  const db = (store as unknown as { db: import("better-sqlite3").Database }).db;
-  const dia = offsetDate(0);
-  db.prepare(
-    `INSERT INTO checkins_diarios (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
-     VALUES (?, ?, ?, 'check_in', ?, ?, NULL, ?)`
-  ).run("codxis", "ana", dia, JSON.stringify(["T1", "T2"]), "[]", dia + "T08:00:00.000Z");
-  db.prepare(
-    `INSERT INTO checkins_diarios (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
-     VALUES (?, ?, ?, 'check_out', ?, ?, NULL, ?)`
-  ).run("codxis", "ana", dia, JSON.stringify(["T1"]), "[]", dia + "T18:00:00.000Z");
-
-  await conn.say("/exportar-csv");
-  const csv = conn.sent[conn.sent.length - 1].text;
-  assert.match(csv, /colaborador,planejadas,concluidas,aderencia_pct,pendencia_recorrente/);
-  assert.match(csv, /"ana",2,1,50,""/);
+    await conn.say("/exportar-csv");
+    const csv = conn.sent[conn.sent.length - 1].text;
+    assert.match(csv, /colaborador,planejadas,concluidas,aderencia_pct,pendencia_recorrente/);
+    assert.match(csv, /"ana",2,1,50,""/);
+  } finally {
+    await store.close();
+  }
 });
 
 test("/exportar-json: gestor recebe JSON estruturado", async () => {
-  const store = new CheckInStore(":memory:");
-  const bot = new CheckInBot(store, { gestaoIds: ["gestor"] });
-  const conn = new FakeConnector();
-  bot.onConnect(conn);
+  const { store, conn } = await newBot(["gestor"]);
+  try {
+    const dia = offsetDate(0);
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "ana", data: dia, tipo: "check_in", tarefas: ["T1"] });
+    await store.seedRecord({ tenantId: "codxis", colaboradorId: "ana", data: dia, tipo: "check_out", tarefas: ["T1"], pendentes: [] });
 
-  const db = (store as unknown as { db: import("better-sqlite3").Database }).db;
-  const dia = offsetDate(0);
-  db.prepare(
-    `INSERT INTO checkins_diarios (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
-     VALUES (?, ?, ?, 'check_in', ?, ?, NULL, ?)`
-  ).run("codxis", "ana", dia, JSON.stringify(["T1"]), "[]", dia + "T08:00:00.000Z");
-  db.prepare(
-    `INSERT INTO checkins_diarios (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
-     VALUES (?, ?, ?, 'check_out', ?, ?, NULL, ?)`
-  ).run("codxis", "ana", dia, JSON.stringify(["T1"]), "[]", dia + "T18:00:00.000Z");
-
-  await conn.say("/exportar-json");
-  const json = conn.sent[conn.sent.length - 1].text;
-  const parsed = JSON.parse(json) as Array<{
-    colaborador: string;
-    planejadas: number;
-    concluidas: number;
-  }>;
-  assert.equal(parsed.length, 1);
-  assert.equal(parsed[0].colaborador, "ana");
-  assert.equal(parsed[0].planejadas, 1);
-  assert.equal(parsed[0].concluidas, 1);
+    await conn.say("/exportar-json");
+    const json = conn.sent[conn.sent.length - 1].text;
+    const parsed = JSON.parse(json) as Array<{
+      colaborador: string;
+      planejadas: number;
+      concluidas: number;
+    }>;
+    assert.equal(parsed.length, 1);
+    assert.equal(parsed[0].colaborador, "ana");
+    assert.equal(parsed[0].planejadas, 1);
+    assert.equal(parsed[0].concluidas, 1);
+  } finally {
+    await store.close();
+  }
 });
 
 test("alerta proativo: gestor recebe aviso quando há pendência recorrente", async () => {
-  const store = new CheckInStore(":memory:");
-  const bot = new CheckInBot(store, { gestaoIds: ["gestor"] });
-  const conn = new FakeConnector();
-  bot.onConnect(conn);
+  const { store, conn } = await newBot(["gestor"]);
+  try {
+    // semear 2 dias de pendência 'Bug X' para o colaborador 'bob'
+    for (const off of [-2, -1]) {
+      const dia = offsetDate(off);
+      await store.seedRecord({ tenantId: "codxis", colaboradorId: "bob", data: dia, tipo: "check_out", tarefas: [], pendentes: ["Bug X"] });
+    }
 
-  const db = (store as unknown as { db: import("better-sqlite3").Database }).db;
-  // semear 2 dias de pendência 'Bug X' para o colaborador 'bob'
-  for (const off of [-2, -1]) {
-    const dia = offsetDate(off);
-    db.prepare(
-      `INSERT INTO checkins_diarios (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
-       VALUES (?, ?, ?, 'check_out', ?, ?, NULL, ?)`
-    ).run("codxis", "bob", dia, "[]", JSON.stringify(["Bug X"]), dia + "T18:00:00.000Z");
+    // 'bob' faz check-in e check-out hoje pelo fluxo do bot (não é gestor)
+    // e deixa 'Bug X' pendente, completando a 3ª ocorrência consecutiva
+    await conn.sayAs("bob", "/check-in");
+    await conn.sayAs("bob", "T1, Bug X");
+    await conn.sayAs("bob", "/check-out");
+    await conn.sayAs("bob", "T1");
+    await conn.sayAs("bob", "Bug X");
+    await conn.sayAs("bob", "faltou tempo");
+
+    const alertas = conn.sent.filter((m) => m.to === "gestor");
+    assert.ok(alertas.length > 0, "esperava alerta enviado à gestão");
+    assert.match(alertas[alertas.length - 1].text, /Bug X/);
+  } finally {
+    await store.close();
   }
-
-  // 'bob' faz check-in e check-out hoje pelo fluxo do bot (não é gestor)
-  // e deixa 'Bug X' pendente, completando a 3ª ocorrência consecutiva
-  await conn.sayAs("bob", "/check-in");
-  await conn.sayAs("bob", "T1, Bug X");
-  await conn.sayAs("bob", "/check-out");
-  await conn.sayAs("bob", "T1");
-  await conn.sayAs("bob", "Bug X");
-  await conn.sayAs("bob", "faltou tempo");
-
-  const alertas = conn.sent.filter((m) => m.to === "gestor");
-  assert.ok(alertas.length > 0, "esperava alerta enviado à gestão");
-  assert.match(alertas[alertas.length - 1].text, /Bug X/);
 });
