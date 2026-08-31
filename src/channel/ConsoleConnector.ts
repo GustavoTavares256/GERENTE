@@ -1,0 +1,50 @@
+import readline from "node:readline/promises";
+import {
+  ChannelConnector,
+  IncomingMessage,
+  OutgoingMessage,
+} from "./ChannelConnector.js";
+
+export class ConsoleConnector implements ChannelConnector {
+  readonly name = "console";
+  private rl: readline.Interface | null = null;
+  private handler: ((msg: IncomingMessage) => Promise<void>) | null = null;
+
+  async start(): Promise<void> {
+    this.rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: process.stdin.isTTY,
+    });
+
+    console.log(
+      "[Console] Bot no console. Digite /check-in, /check-out, /hoje ou cancelar.",
+    );
+
+    while (true) {
+      const linha = await this.rl.question("você > ");
+      if (this.handler === null) continue;
+      const text = linha.trim();
+      if (!text) continue;
+      if (text.toLowerCase() === "sair") {
+        console.log("[Console] Encerrando.");
+        this.rl.close();
+        process.exit(0);
+      }
+      await this.handler({
+        senderId: "console-local",
+        senderName: "teste",
+        text,
+        channel: this.name,
+      });
+    }
+  }
+
+  onMessage(handler: (msg: IncomingMessage) => Promise<void>): void {
+    this.handler = handler;
+  }
+
+  async send(msg: OutgoingMessage): Promise<void> {
+    console.log(`bot   > ${msg.text}`);
+  }
+}
