@@ -24,7 +24,11 @@ Bot externo (Node + TypeScript)
   ├── src/store/CheckInStore.ts          → persistência PostgreSQL (pg)
   ├── src/report/gestao.ts               → agregação de dados de gestão (capacidade/aderência/recorrentes + CSV/JSON)
   ├── src/ai/LLMProvider.ts              → provedor LLM configurável (OpenAI-compatible) — opcional
+  ├── src/ai/Dialogo.ts                  → redige cada pergunta da conversa guiada (LLM + fallback por tópico)
   ├── src/ai/Sugestoes.ts                → gerador de sugestões inteligentes (LLM + fallback por regras)
+  ├── src/agendar/Scheduler.ts           → agendador de turnos (dispara nos horários, uma vez por dia por turno)
+  ├── src/agendar/turnos.ts              → monta os 3 turnos a partir das env vars (manhã/tarde/fim do dia)
+  ├── src/agendar/iniciar.ts             → `iniciarAgendador(bot, connector)` — liga os turnos nos entrypoints
   ├── src/dashboard/server.ts            → servidor HTTP do painel web de gestão
   ├── src/dashboard/start-dashboard.ts   → entrypoint do dashboard
   ├── src/index.ts                       → entrypoint WhatsApp
@@ -61,11 +65,14 @@ O gerente **não depende de o usuário digitar comando**: um agendador dispara m
 automaticamente nos horários configurados (`Scheduler` em `src/agendar/`). As mensagens vão
 somente para os IDs **fixos** de `FUNCIONARIOS_IDS` (não faz descoberta no banco) e para a gestão.
 
-- **Manhã** (`HORA_CHECKIN`, padrão 10:00): lembrete de check-in para todos da lista fixa.
+- **Manhã** (`HORA_CHECKIN`, padrão 10:00): inicia a **conversa guiada de check-in**
+  automaticamente para quem ainda não registrou (pergunta "Quais são suas tarefas?" e o
+  colaborador responde — sem precisar digitar `/check-in`).
 - **Início da tarde** (`HORA_COBRANCA_CHECKIN`, padrão 14:30): cobrança de check-in para quem ainda
   não registrou hoje.
-- **Fim do expediente** (`HORA_CHECKOUT`, padrão 16:30): cobrança de check-out para quem ainda não
-  fechou o dia + sugestões (visão empresa) para a gestão.
+- **Fim do expediente** (`HORA_CHECKOUT`, padrão 16:30): inicia a **conversa guiada de check-out**
+  (concluídas → pendentes → justificativa) para quem fez check-in mas ainda não fechou o dia
+  (sem precisar digitar `/check-out`), e envia as sugestões (visão empresa) para a gestão.
 - Desligável com `AGENDADOR_ATIVO=false`. Dispara uma única vez por dia por turno.
 
 ## Conversa guiada com LLM
@@ -111,7 +118,7 @@ O schema é criado automaticamente pelo `CheckInStore.connect()`.
 | `npm run dev:console` | Inicia o bot no terminal (teste sem WhatsApp) |
 | `npm run dev:dashboard` | Sobe o painel web da gestão (http://127.0.0.1:3111/) |
 | `npm run typecheck` | Verifica tipos (tsc --noEmit) |
-| `npm run test` | Roda os testes (node:test — aderência, store, fluxo, pendência e dashboard) |
+| `npm run test` | Roda os testes (node:test — 8 arquivos: aderência, store, fluxo, pendência, dashboard, sugestões, agendador) |
 | `npm run build` | Compila para `dist/` |
 | `npm start` | Roda o build compilado |
 
@@ -176,9 +183,9 @@ conforme o remetente (gestão → visão de empresa; colaborador → visão indi
 | `HORA_COBRANCA_CHECKIN` | `14:30` | Hora da cobrança de check-in para quem não registrou (início da tarde) |
 | `HORA_CHECKOUT` | `16:30` | Hora do check-out + sugestões para a gestão (fim do expediente) |
 | `AGENDADOR_ATIVO` | `true` | Liga/desliga o agendador de turnos automáticos |
-| `OPENAI_API_KEY` | vazio | Chave do provedor LLM (OpenAI-compatible). Sem ela, sugestões usam fallback por regras |
+| `OPENAI_API_KEY` | vazio | Chave do provedor LLM (OpenAI-compatible). Usada tanto na **conversa guiada** (`Dialogo`, perguntas) quanto nas **sugestões inteligentes**. Sem ela, ambos usam fallback |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | URL base da API (OpenAI-compatible: Groq, Together, Ollama, etc.) |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Modelo usado nas sugestões |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Modelo usado nos diálogos e nas sugestões |
 | `SUGESTOES_ATIVAS` | `true` | Se as sugestões proativas são enviadas após check-out/`/hoje` |
 
 Exemplo com gestão configurada no console:
@@ -205,7 +212,7 @@ npm run dev:dashboard   # http://127.0.0.1:3111/
 > Ele roda em `127.0.0.1` (só a máquina local) por padrão, sem autenticação. Não exponha na rede
 > sem adicionar login/segurança.
 
-## ArmadilhA conhecida (lock do Chrome)
+## Armadilha conhecida (lock do Chrome)
 
 Se fechar o bot com `Ctrl+C` forçado, o Chrome do whatsapp-web.js pode ficar preso e a próxima
 execução falha com:
@@ -261,9 +268,9 @@ na seção de andamento. Para validar a lógica do bot sem depender do WhatsApp,
 - ✅ **Sugestões inteligentes do gerente** (`src/ai/Sugestoes.ts`): analisa os dados e propõe
   próximos passos para a empresa ou para o colaborador — com LLM (`OPENAI_API_KEY`) ou fallback
   por regras; proativas após check-out/`/hoje` e sob demanda via `/sugestoes`.
-- ✅ **Turnos automáticos** (`src/agendar/Scheduler.ts`): dispara lembretes/cobranças de check-in e
-  check-out nos horários configurados, sem depender de comando, para a lista fixa `FUNCIONARIOS_IDS`
-  + sugestões para a gestão no fim do expediente.
+- ✅ **Turnos automáticos** (`src/agendar/Scheduler.ts`): dispara nos horários configurados e
+  **inicia a conversa guiada de check-in/check-out** automaticamente (sem digitar comando), para a
+  lista fixa `FUNCIONARIOS_IDS`, além da cobrança da tarde e das sugestões para a gestão no fim do expediente.
 - ✅ **Conversa guiada com LLM** (`src/ai/Dialogo.ts`): o gerente redige cada pergunta do
   check-in/check-out via ChatGPT, seguindo um roteiro fixo de tópicos (uma pergunta por vez, com
   fallback offline por perguntas prontas — nunca gera loop).
@@ -279,16 +286,54 @@ na seção de andamento. Para validar a lógica do bot sem depender do WhatsApp,
   recorrente, permissão/exportação/alerta proativo, dashboard, sugestões, agendador de turnos e
   conversa guiada (`npm test`).
 
-### ⏳ Pendente
+### ⏳ Pendente (próximos passos, por prioridade)
 
-- **Migrar o conector WhatsApp para provedor pago (Z-API/Twilio) na produção.** A rota gratuita por
-  QR (`whatsapp-web.js@1.34.7`) está incompatível com o WhatsApp Web atual (ver seção
-  "Incompatibilidade atual do whatsapp-web.js"). Para produção, trocar o `WhatsAppConnector` por um
-  conector de provedor pago — **sem reescrever** a lógica do bot, graças à camada `ChannelConnector`.
+1. **P1 — Migrar o conector WhatsApp para provedor pago (Z-API/Twilio) na produção.** A rota gratuita
+   por QR (`whatsapp-web.js@1.34.7`) está incompatível com o WhatsApp Web atual (ver seção
+   "Incompatibilidade atual do whatsapp-web.js"). Para produção, trocar o `WhatsAppConnector` por um
+   conector de provedor pago — **sem reescrever** a lógica do bot, graças à camada `ChannelConnector`.
+2. **P1 — Validar o fluxo real no WhatsApp** com a chave da OpenAI configurada (ver "Cenários de
+   teste"): turno da manhã iniciando check-in guiado, cobrança da tarde e check-out guiado no fim do
+   dia, com as perguntas redigidas pelo ChatGPT.
+3. **P2 — Endpoint HTTP para disparar os turnos sob demanda** (ex.: um webhook que chama
+   `lembrarCheckinTodos`/`fecharDia` fora do horário, útil para testes e integrações externas).
+4. **P2 — Autenticação no dashboard web** (login/senha ou token) antes de qualquer exposição em rede.
+5. **P3 — Editar/remover tarefas** registradas no check-in.
+6. **P3 — Resumo diário semanal** consolidado por e-mail/relatório.
 
 ### 💡 Próximas ideias (não comprometidas)
 
-- Autenticação no dashboard web antes de expô-lo em rede (hoje roda só em `127.0.0.1`, sem login).
-- Editar/remover tarefas registradas no check-in.
-- Resumo diário semanal por e-mail/relatório consolidado.
-- Notificações/lembretes de check-in/check-out para quem ainda não registrou.
+- Notificações/lembretes de check-in/check-out para quem ainda não registrou (fora dos turnos fixos).
+- Integração futura com o CRM (ler/exportar tarefas) sem duplicar digitação.
+- Novo conector de canal além do WhatsApp (ex.: Telegram) via camada `ChannelConnector`.
+
+## Cenários de teste (validação manual / smoke)
+
+Além dos **56 testes automatizados** (`npm test`), vale validar manualmente o fluxo completo via
+`npm run dev:console` (ou WhatsApp). Cenários principais:
+
+**Check-in guiado (turno da manhã)**
+1. Com `FUNCIONARIOS_IDS` preenchido, rodar `lembrarCheckinTodos` (ou atingir `HORA_CHECKIN`) →
+   o colaborador **recebe a pergunta** sobre as tarefas, sem digitar `/check-in`.
+2. Responder com tarefas → aparece a confirmação "✅ Check-in registrado!" e o `/hoje` mostra as planejadas.
+3. Quem já fez check-in no dia **não recebe** a pergunta de novo.
+
+**Check-out guiado (turno do fim do dia)**
+1. Quem fez check-in mas não fez check-out recebe a pergunta "O que você concluiu hoje?".
+2. Fluxo segue concluídas → pendentes → justificativa e registra.
+3. Quem **não fez check-in** e quem **já fez check-out** não recebe a pergunta.
+4. A gestão (`GESTAO_IDS`) recebe as **sugestões do fim do dia**.
+
+**Cobrança da tarde**
+1. Quem não fez check-in até `HORA_COBRANCA_CHECKIN` recebe a cobrança.
+
+**Conversa guiada com LLM**
+1. Com `OPENAI_API_KEY` preenchida → cada pergunta vem redigida pelo ChatGPT (natural, uma por vez).
+2. Sem chave (ou LLM falhando) → cai no **fallback** de perguntas prontas, sem travar nem gerar loop.
+
+**Bloqueios e regras**
+- Check-out sem check-in → mensagem de erro.
+- Check-in/check-out duplicado no dia → bloqueado com aviso.
+- `cancelar` → aborta o fluxo em andamento.
+- `GESTAO_IDS` vazio → `/relatorio` e `/exportar-*` bloqueados para todos; sem alertas proativos.
+- Pendência recorrente (3+ check-outs seguidos sem justificativa) → alerta proativo para cada gestor.
