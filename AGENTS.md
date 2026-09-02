@@ -61,10 +61,10 @@ O gerente **não depende de o usuário digitar comando**: um agendador dispara m
 automaticamente nos horários configurados (`Scheduler` em `src/agendar/`). As mensagens vão
 somente para os IDs **fixos** de `FUNCIONARIOS_IDS` (não faz descoberta no banco) e para a gestão.
 
-- **Manhã** (`HORA_CHECKIN`, padrão 08:00): lembrete de check-in para todos da lista fixa.
-- **Início da tarde** (`HORA_COBRANCA_CHECKIN`, padrão 14:00): cobrança de check-in para quem ainda
+- **Manhã** (`HORA_CHECKIN`, padrão 10:00): lembrete de check-in para todos da lista fixa.
+- **Início da tarde** (`HORA_COBRANCA_CHECKIN`, padrão 14:30): cobrança de check-in para quem ainda
   não registrou hoje.
-- **Fim do expediente** (`HORA_CHECKOUT`, padrão 17:30): cobrança de check-out para quem ainda não
+- **Fim do expediente** (`HORA_CHECKOUT`, padrão 16:30): cobrança de check-out para quem ainda não
   fechou o dia + sugestões (visão empresa) para a gestão.
 - Desligável com `AGENDADOR_ATIVO=false`. Dispara uma única vez por dia por turno.
 
@@ -172,9 +172,9 @@ conforme o remetente (gestão → visão de empresa; colaborador → visão indi
 | `TENANT_ID` | `codxis` | Identificador do tenant (multi-tenant) |
 | `PORT` | `3111` | Porta do dashboard (painel web da gestão) |
 | `HOST` | `127.0.0.1` | Endereço de escuta do dashboard |
-| `HORA_CHECKIN` | `08:00` | Hora do lembrete de check-in (manhã) no agendador |
-| `HORA_COBRANCA_CHECKIN` | `14:00` | Hora da cobrança de check-in para quem não registrou (início da tarde) |
-| `HORA_CHECKOUT` | `17:30` | Hora do check-out + sugestões para a gestão (fim do expediente) |
+| `HORA_CHECKIN` | `10:00` | Hora do lembrete de check-in (manhã) no agendador |
+| `HORA_COBRANCA_CHECKIN` | `14:30` | Hora da cobrança de check-in para quem não registrou (início da tarde) |
+| `HORA_CHECKOUT` | `16:30` | Hora do check-out + sugestões para a gestão (fim do expediente) |
 | `AGENDADOR_ATIVO` | `true` | Liga/desliga o agendador de turnos automáticos |
 | `OPENAI_API_KEY` | vazio | Chave do provedor LLM (OpenAI-compatible). Sem ela, sugestões usam fallback por regras |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | URL base da API (OpenAI-compatible: Groq, Together, Ollama, etc.) |

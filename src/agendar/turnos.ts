@@ -12,9 +12,9 @@ export interface TurnosEnv {
 
 export function lerEnvTurnos(env: NodeJS.ProcessEnv = process.env): TurnosEnv {
   return {
-    horaCheckin: env.HORA_CHECKIN ?? "08:00",
-    horaCobrancaCheckin: env.HORA_COBRANCA_CHECKIN ?? "14:00",
-    horaCheckout: env.HORA_CHECKOUT ?? "17:30",
+    horaCheckin: env.HORA_CHECKIN ?? "10:00",
+    horaCobrancaCheckin: env.HORA_COBRANCA_CHECKIN ?? "14:30",
+    horaCheckout: env.HORA_CHECKOUT ?? "16:30",
     agendadorAtivo: (env.AGENDADOR_ATIVO ?? "true") !== "false",
   };
 }

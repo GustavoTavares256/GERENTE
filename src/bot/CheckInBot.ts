@@ -236,19 +236,17 @@ export class CheckInBot {
   }
 
   /** Turno manhã: lembra todos os colaboradores registrados de fazer o check-in. */
+  /** Turno manhã: inicia a conversa guiada de check-in para todos os
+   *  colaboradores que ainda não registraram — sem exigir /check-in. */
   async lembrarCheckinTodos(connector: ChannelConnector): Promise<void> {
     const colaboradores = [...this.funcionariosIds];
     if (colaboradores.length === 0) return;
     await Promise.all(
-      colaboradores.map((c) =>
-        connector.send({
-          to: c,
-          text:
-            "⏰ *Hora do check-in!*\n\n" +
-            "Registre suas tarefas de hoje para o gerente acompanhar.\n" +
-            "Envie /check-in ou digite suas tarefas.",
-        })
-      )
+      colaboradores.map(async (c) => {
+        if (await this.store.hasCheckIn(this.tenantId, c)) return;
+        this.flows.set(c, { step: "checkin_tarefas" });
+        await this.perguntar(c, connector, "tarefas", "check-in da manhã");
+      })
     );
   }
 
@@ -277,8 +275,9 @@ export class CheckInBot {
   }
 
   /**
-   * Turno fim do dia: cobra o check-out de quem ainda não fechou o dia e
-   * envia as sugestões (visão empresa) para a gestão. Usa a lista fixa.
+   * Turno fim do dia: inicia a conversa guiada de check-out para quem fez
+   * check-in mas ainda não fechou o dia, e envia as sugestões (visão empresa)
+   * para a gestão. Usa a lista fixa.
    */
   async fecharDia(connector: ChannelConnector): Promise<void> {
     const comCheckout = new Set(
@@ -287,19 +286,17 @@ export class CheckInBot {
         this.hoje()
       )
     );
-    const semCheckout = [...this.funcionariosIds].filter(
-      (c) => !comCheckout.has(c)
-    );
     await Promise.all(
-      semCheckout.map((c) =>
-        connector.send({
-          to: c,
-          text:
-            "🕒 *Hora do check-out!*\n\n" +
-            "Você fez o check-in hoje, mas ainda não fechou o dia.\n" +
-            "Envie /check-out com o que concluiu e o que ficou pendente.",
-        })
-      )
+      [...this.funcionariosIds].map(async (c) => {
+        if (comCheckout.has(c)) return;
+        if (!(await this.store.getCheckIn(this.tenantId, c))) return;
+        this.flows.set(c, {
+          step: "checkout_concluidas",
+          concluidas: [],
+          pendentes: [],
+        });
+        await this.perguntar(c, connector, "concluidas", "check-out do fim do dia");
+      })
     );
 
     for (const gestor of this.gestaoIds) {

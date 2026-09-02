@@ -139,9 +139,9 @@ test("Scheduler desativado não dispara nada", async () => {
 
 test("lerEnvTurnos usa padrões quando não há env", () => {
   const env = lerEnvTurnos({});
-  assert.equal(env.horaCheckin, "08:00");
-  assert.equal(env.horaCobrancaCheckin, "14:00");
-  assert.equal(env.horaCheckout, "17:30");
+  assert.equal(env.horaCheckin, "10:00");
+  assert.equal(env.horaCobrancaCheckin, "14:30");
+  assert.equal(env.horaCheckout, "16:30");
   assert.equal(env.agendadorAtivo, true);
 });
 
@@ -178,7 +178,7 @@ test("montarTurnos cria os três turnos com horários corretos", () => {
 
 const hoje = new Date().toISOString().slice(0, 10);
 
-test("lembrarCheckinTodos envia para a lista fixa de funcionários", async () => {
+test("lembrarCheckinTodos inicia a conversa guiada de check-in para a lista fixa", async () => {
   const store = await connectTestStore("agendador_lembrar");
   const conn = new FakeConnector();
   const bot = new CheckInBot(store, {
@@ -189,7 +189,7 @@ test("lembrarCheckinTodos envia para a lista fixa de funcionários", async () =>
   await bot.lembrarCheckinTodos(conn);
   const destinos = conn.sent.map((m) => m.to).sort();
   assert.deepEqual(destinos, ["f1@c.us", "f2@c.us"]);
-  assert.match(conn.sent[0].text, /check-in/i);
+  assert.ok(conn.sent[0].text.length > 0);
 });
 
 test("cobrarCheckinNaoFeito cobra só quem não fez check-in hoje", async () => {
@@ -212,7 +212,7 @@ test("cobrarCheckinNaoFeito cobra só quem não fez check-in hoje", async () => 
   assert.deepEqual(destinos, ["f2@c.us"]);
 });
 
-test("fecharDia não envia check-out para quem já fez, e envia sugestão ao gestor", async () => {
+test("fecharDia inicia a conversa de check-out só para quem fez check-in e envia sugestão ao gestor", async () => {
   const store = await connectTestStore("agendador_fimdodia");
   await store.seedRecord({
     tenantId: "codxis",
@@ -229,17 +229,27 @@ test("fecharDia não envia check-out para quem já fez, e envia sugestão ao ges
     tarefas: ["Tarefa A"],
     pendentes: [],
   });
+  await store.seedRecord({
+    tenantId: "codxis",
+    colaboradorId: "f3@c.us",
+    data: hoje,
+    tipo: "check_in",
+    tarefas: ["Tarefa B"],
+  });
   const conn = new FakeConnector();
   const bot = new CheckInBot(store, {
-    funcionariosIds: ["f1@c.us", "f2@c.us"],
+    funcionariosIds: ["f1@c.us", "f2@c.us", "f3@c.us"],
     gestaoIds: ["gestor@c.us"],
     sugestoesProativas: true,
     llm: new FakeLLM() as unknown as LLMProvider,
   });
   await bot.fecharDia(conn);
-  // f1 fez check-out → não é cobrado; f2 (lista fixa, sem check-out) → cobrado
-  assert.equal(conn.sent.some((m) => m.to === "f1@c.us" && /check-out/i.test(m.text)), false);
-  assert.equal(conn.sent.some((m) => m.to === "f2@c.us" && /check-out/i.test(m.text)), true);
+  // f1 fez check-out → não recebe pergunta de check-out
+  assert.equal(conn.sent.some((m) => m.to === "f1@c.us"), false);
+  // f2 não fez check-in → não recebe pergunta de check-out
+  assert.equal(conn.sent.some((m) => m.to === "f2@c.us"), false);
+  // f3 fez check-in mas não fechou → recebe a pergunta guiada de check-out
+  assert.equal(conn.sent.some((m) => m.to === "f3@c.us"), true);
   // gestor recebe sugestão do fim do dia
   assert.equal(conn.sent.some((m) => m.to === "gestor@c.us" && /fim do dia/i.test(m.text)), true);
 });
