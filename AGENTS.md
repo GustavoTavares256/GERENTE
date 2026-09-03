@@ -72,7 +72,8 @@ somente para os IDs **fixos** de `FUNCIONARIOS_IDS` (não faz descoberta no banc
   não registrou hoje.
 - **Fim do expediente** (`HORA_CHECKOUT`, padrão 16:30): inicia a **conversa guiada de check-out**
   (concluídas → pendentes → justificativa) para quem fez check-in mas ainda não fechou o dia
-  (sem precisar digitar `/check-out`), e envia as sugestões (visão empresa) para a gestão.
+  (sem precisar digitar `/check-out`), enviando as **sugestões individuais do colaborador**
+  junto com a pergunta inicial.
 - Desligável com `AGENDADOR_ATIVO=false`. Dispara uma única vez por dia por turno.
 
 ## Conversa guiada com LLM
@@ -181,7 +182,7 @@ conforme o remetente (gestão → visão de empresa; colaborador → visão indi
 | `HOST` | `127.0.0.1` | Endereço de escuta do dashboard |
 | `HORA_CHECKIN` | `10:00` | Hora do lembrete de check-in (manhã) no agendador |
 | `HORA_COBRANCA_CHECKIN` | `14:30` | Hora da cobrança de check-in para quem não registrou (início da tarde) |
-| `HORA_CHECKOUT` | `16:30` | Hora do check-out + sugestões para a gestão (fim do expediente) |
+| `HORA_CHECKOUT` | `16:30` | Hora do check-out + sugestões individuais do colaborador (fim do expediente) |
 | `AGENDADOR_ATIVO` | `true` | Liga/desliga o agendador de turnos automáticos |
 | `OPENAI_API_KEY` | vazio | Chave do provedor LLM (OpenAI-compatible). Usada tanto na **conversa guiada** (`Dialogo`, perguntas) quanto nas **sugestões inteligentes**. Sem ela, ambos usam fallback |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | URL base da API (OpenAI-compatible: Groq, Together, Ollama, etc.) |
@@ -270,7 +271,8 @@ na seção de andamento. Para validar a lógica do bot sem depender do WhatsApp,
   por regras; proativas após check-out/`/hoje` e sob demanda via `/sugestoes`.
 - ✅ **Turnos automáticos** (`src/agendar/Scheduler.ts`): dispara nos horários configurados e
   **inicia a conversa guiada de check-in/check-out** automaticamente (sem digitar comando), para a
-  lista fixa `FUNCIONARIOS_IDS`, além da cobrança da tarde e das sugestões para a gestão no fim do expediente.
+  lista fixa `FUNCIONARIOS_IDS`, com a cobrança da tarde e as **sugestões individuais** enviadas
+  ao próprio colaborador junto com o check-out no fim do expediente.
 - ✅ **Conversa guiada com LLM** (`src/ai/Dialogo.ts`): o gerente redige cada pergunta do
   check-in/check-out via ChatGPT, seguindo um roteiro fixo de tópicos (uma pergunta por vez, com
   fallback offline por perguntas prontas — nunca gera loop).
@@ -319,10 +321,10 @@ Além dos **56 testes automatizados** (`npm test`), vale validar manualmente o f
 3. Quem já fez check-in no dia **não recebe** a pergunta de novo.
 
 **Check-out guiado (turno do fim do dia)**
-1. Quem fez check-in mas não fez check-out recebe a pergunta "O que você concluiu hoje?".
+1. Quem fez check-in mas não fez check-out recebe a pergunta "O que você concluiu hoje?" com as
+   **sugestões individuais** do colaborador junto.
 2. Fluxo segue concluídas → pendentes → justificativa e registra.
 3. Quem **não fez check-in** e quem **já fez check-out** não recebe a pergunta.
-4. A gestão (`GESTAO_IDS`) recebe as **sugestões do fim do dia**.
 
 **Cobrança da tarde**
 1. Quem não fez check-in até `HORA_COBRANCA_CHECKIN` recebe a cobrança.

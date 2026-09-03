@@ -107,7 +107,11 @@ function offsetDate(offsetDays: number): string {
 
 async function newBot(gestaoIds: string[]): Promise<{ store: CheckInStore; bot: CheckInBot; conn: FakeConnector }> {
   const store = await connectTestStore("pendencia");
-  const bot = new CheckInBot(store, { gestaoIds, llm: null });
+  const bot = new CheckInBot(store, {
+    gestaoIds,
+    funcionariosIds: ["gestor", "colab-teste", "colab-ok", "bob", "ana"],
+    llm: null,
+  });
   const conn = new FakeConnector();
   bot.onConnect(conn);
   return { store, bot, conn };

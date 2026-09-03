@@ -217,7 +217,7 @@ test("bot: envia sugestão proativa (individual) após o check-out", async () =>
       const dia = offsetDate(off);
       await store.seedRecord({ tenantId: "codxis", colaboradorId: "ana", data: dia, tipo: "check_out", tarefas: [], pendentes: ["Bug X"] });
     }
-    const bot = new CheckInBot(store, { llm: null });
+    const bot = new CheckInBot(store, { llm: null, funcionariosIds: ["ana"] });
     const conn = new FakeConnector();
     bot.onConnect(conn);
 
@@ -255,7 +255,7 @@ test("bot: /sugestoes para gestão retorna visão de empresa", async () => {
 test("bot: /sugestoes para colaborador retorna visão individual", async () => {
   const store = await connectTestStore("sugestoes");
   try {
-    const bot = new CheckInBot(store, { llm: null });
+    const bot = new CheckInBot(store, { llm: null, funcionariosIds: ["ana"] });
     const conn = new FakeConnector();
     bot.onConnect(conn);
 

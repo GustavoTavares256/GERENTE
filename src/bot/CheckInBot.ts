@@ -276,8 +276,8 @@ export class CheckInBot {
 
   /**
    * Turno fim do dia: inicia a conversa guiada de check-out para quem fez
-   * check-in mas ainda não fechou o dia, e envia as sugestões (visão empresa)
-   * para a gestão. Usa a lista fixa.
+   * check-in mas ainda não fechou o dia, enviando as sugestões individuais
+   * do colaborador junto com a pergunta de check-out. Usa a lista fixa.
    */
   async fecharDia(connector: ChannelConnector): Promise<void> {
     const comCheckout = new Set(
@@ -295,25 +295,32 @@ export class CheckInBot {
           concluidas: [],
           pendentes: [],
         });
-        await this.perguntar(c, connector, "concluidas", "check-out do fim do dia");
+        const ctx = await contextoColaborador(this.store, this.tenantId, c);
+        const sugestoes = await sugestoesColaborador(this.llm, ctx);
+        const sugestoesMsg = formatarSugestoes(
+          "💡 *Sugestões para você:*",
+          sugestoes
+        );
+        const pergunta = await redigirPergunta(
+          "concluidas",
+          this.llm,
+          "check-out do fim do dia"
+        );
+        const corpo = sugestoesMsg
+          ? `${sugestoesMsg}\n\n${pergunta}`
+          : pergunta;
+        await connector.send({ to: c, text: corpo });
       })
     );
-
-    for (const gestor of this.gestaoIds) {
-      const ctx = await contextoEmpresa(this.store, this.tenantId);
-      const sugestoes = await sugestoesEmpresa(this.llm, ctx);
-      const msg = formatarSugestoes(
-        "🌙 *Fim do dia — próximos passos* (empresa):",
-        sugestoes
-      );
-      if (msg && this.sugestoesProativas) {
-        await connector.send({ to: gestor, text: msg });
-      }
-    }
   }
 
   private isGestao(sender: string): boolean {
     return this.gestaoIds.has(sender);
+  }
+
+  /** true se o remetente está nas listas permitidas (funcionários ou gestão). */
+  private isPermitido(sender: string): boolean {
+    return this.funcionariosIds.has(sender) || this.gestaoIds.has(sender);
   }
 
   private async handle(
@@ -321,6 +328,10 @@ export class CheckInBot {
     connector: ChannelConnector
   ): Promise<void> {
     const sender = msg.senderId;
+
+    if (!this.isPermitido(sender)) {
+      return;
+    }
 
     if (msg.text.toLowerCase() === "cancelar") {
       this.flows.delete(sender);

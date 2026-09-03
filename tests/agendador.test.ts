@@ -212,7 +212,7 @@ test("cobrarCheckinNaoFeito cobra só quem não fez check-in hoje", async () => 
   assert.deepEqual(destinos, ["f2@c.us"]);
 });
 
-test("fecharDia inicia a conversa de check-out só para quem fez check-in e envia sugestão ao gestor", async () => {
+test("fecharDia inicia a conversa de check-out com sugestões individuais para quem fez check-in", async () => {
   const store = await connectTestStore("agendador_fimdodia");
   await store.seedRecord({
     tenantId: "codxis",
@@ -248,8 +248,12 @@ test("fecharDia inicia a conversa de check-out só para quem fez check-in e envi
   assert.equal(conn.sent.some((m) => m.to === "f1@c.us"), false);
   // f2 não fez check-in → não recebe pergunta de check-out
   assert.equal(conn.sent.some((m) => m.to === "f2@c.us"), false);
-  // f3 fez check-in mas não fechou → recebe a pergunta guiada de check-out
+  // f3 fez check-in mas não fechou → recebe a pergunta guiada + sugestões individuais
   assert.equal(conn.sent.some((m) => m.to === "f3@c.us"), true);
-  // gestor recebe sugestão do fim do dia
-  assert.equal(conn.sent.some((m) => m.to === "gestor@c.us" && /fim do dia/i.test(m.text)), true);
+  assert.equal(
+    conn.sent.some((m) => m.to === "f3@c.us" && /Sugestões para você/.test(m.text)),
+    true
+  );
+  // gestor não recebe mais as sugestões do fim do dia
+  assert.equal(conn.sent.some((m) => m.to === "gestor@c.us"), false);
 });

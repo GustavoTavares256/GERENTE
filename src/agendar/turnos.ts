@@ -40,7 +40,7 @@ export function montarTurnos(bot: CheckInBot, env = process.env): TurnoDef[] {
     {
       id: "fimDoDia",
       horario: horaCheckout,
-      label: "Check-out + sugestões para a gestão",
+      label: "Check-out + sugestões individuais",
       acao: (connector) => bot.fecharDia(connector),
     },
   ];
