@@ -29,12 +29,27 @@ export interface Aderencia {
   naoInformadasNoCheckin: string[];
 }
 
+/** Junta as tarefas de todos os check-ins do dia, sem duplicatas (mantém ordem). */
+export function planejadosDoDia(checkIns: CheckInRecord[]): string[] {
+  const vistos = new Set<string>();
+  const plano: string[] = [];
+  for (const ci of checkIns) {
+    for (const t of JSON.parse(ci.tarefas) as string[]) {
+      const key = t.trim().toLowerCase();
+      if (!vistos.has(key)) {
+        vistos.add(key);
+        plano.push(t);
+      }
+    }
+  }
+  return plano;
+}
+
 export function calcularAderencia(
-  checkIn: CheckInRecord,
+  planejadas: string[],
   concluidas: string[],
   pendentes: string[]
 ): Aderencia {
-  const planejadas = JSON.parse(checkIn.tarefas) as string[];
   const pendentesNorm = new Set(pendentes.map((t) => t.trim().toLowerCase()));
 
   const deFatoConcluidas = concluidas.filter(
@@ -367,7 +382,7 @@ export class CheckInBot {
     await Promise.all(
       [...this.funcionariosIds].map(async (c) => {
         if (comCheckout.has(c)) return;
-        if (!(await this.store.getCheckIn(this.tenantId, c))) return;
+        if (!(await this.store.hasCheckIn(this.tenantId, c))) return;
         this.flows.set(c, {
           step: "checkout_concluidas",
           concluidas: [],
@@ -434,20 +449,21 @@ export class CheckInBot {
     switch (cmd) {
       case "/check-in":
       case "/checkin":
-        if (await this.store.hasCheckIn(this.tenantId, sender)) {
-          await connector.send({
-            to: sender,
-            text: "Você já fez o check-in hoje. Use /hoje para ver o resumo.",
-          });
-          return;
+        {
+          const jaFez = await this.store.hasCheckIn(this.tenantId, sender);
+          this.flows.set(sender, { step: "checkin_tarefas" });
+          await this.perguntar(
+            sender,
+            connector,
+            jaFez ? "tarefas_extra" : "tarefas",
+            jaFez ? "check-in já feito hoje; adicionando novas tarefas" : ""
+          );
         }
-        this.flows.set(sender, { step: "checkin_tarefas" });
-        await this.perguntar(sender, connector, "tarefas");
         return;
 
       case "/check-out":
       case "/checkout":
-        if (!(await this.store.getCheckIn(this.tenantId, sender))) {
+        if (!(await this.store.hasCheckIn(this.tenantId, sender))) {
           await connector.send({
             to: sender,
             text: "Você ainda não fez o check-in hoje. Use /check-in primeiro.",
@@ -569,13 +585,17 @@ export class CheckInBot {
       justificativa
     );
 
-    const checkIn = await this.store.getCheckIn(this.tenantId, sender);
-    if (!checkIn) {
+    const checkIns = await this.store.getCheckIns(this.tenantId, sender);
+    if (checkIns.length === 0) {
       await connector.send({ to: sender, text: "✅ Check-out registrado!" });
       return;
     }
 
-    const aderencia = calcularAderencia(checkIn, flow.concluidas, flow.pendentes);
+    const aderencia = calcularAderencia(
+      planejadosDoDia(checkIns),
+      flow.concluidas,
+      flow.pendentes
+    );
     if (justificativa && flow.pendentes.length > 0) {
       aderencia.naoInformadasNoCheckin.push(
         `Justificativa: ${justificativa}`
@@ -657,8 +677,8 @@ export class CheckInBot {
     sender: string,
     connector: ChannelConnector
   ): Promise<void> {
-    const checkIn = await this.store.getCheckIn(this.tenantId, sender);
-    if (!checkIn) {
+    const checkIns = await this.store.getCheckIns(this.tenantId, sender);
+    if (checkIns.length === 0) {
       await connector.send({
         to: sender,
         text: "Nenhum check-in registrado hoje. Use /check-in.",
@@ -666,10 +686,9 @@ export class CheckInBot {
       return;
     }
 
+    const planejadas = planejadosDoDia(checkIns);
     const checkOut = await this.store.getCheckOut(this.tenantId, sender);
-    let msg = `🗓️ Resumo de hoje:\n\nPlanejadas:\n${(
-      JSON.parse(checkIn.tarefas) as string[]
-    )
+    let msg = `🗓️ Resumo de hoje:\n\nPlanejadas:\n${planejadas
       .map((t, i) => `${i + 1}. ${t}`)
       .join("\n")}`;
 
@@ -682,7 +701,7 @@ export class CheckInBot {
         : [];
       msg +=
         `\n\n` +
-        resumoAderencia(calcularAderencia(checkIn, concluidas, pendentes));
+        resumoAderencia(calcularAderencia(planejadas, concluidas, pendentes));
     }
 
     await connector.send({ to: sender, text: msg });

@@ -185,14 +185,22 @@ export class CheckInStore {
     tenantId: string,
     colaboradorId: string
   ): Promise<CheckInRecord | null> {
+    const todos = await this.getCheckIns(tenantId, colaboradorId);
+    return todos[todos.length - 1] ?? null;
+  }
+
+  /** Todos os check-ins de hoje, em ordem de registro (permite múltiplos check-ins acumulados). */
+  async getCheckIns(
+    tenantId: string,
+    colaboradorId: string
+  ): Promise<CheckInRecord[]> {
     const res = await this.pool.query(
       `SELECT * FROM checkins_diarios
        WHERE tenant_id = $1 AND colaborador_id = $2 AND data = $3 AND tipo = 'check_in'
-       LIMIT 1`,
+       ORDER BY id ASC`,
       [tenantId, colaboradorId, this.today()]
     );
-    const row = res.rows[0] as CheckInRow | undefined;
-    return row ? toRecord(row) : null;
+    return (res.rows as CheckInRow[]).map(toRecord);
   }
 
   async getCheckOut(

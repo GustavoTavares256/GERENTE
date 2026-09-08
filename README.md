@@ -124,7 +124,7 @@ O bot conversa pelo terminal (mesma máquina de estados e store PostgreSQL). Dig
 
 | Comando | Quem | Ação |
 |---|---|---|
-| `/check-in` (`/checkin`) | todos | Registra as tarefas planejadas do dia |
+| `/check-in` (`/checkin`) | todos | Registra as tarefas planejadas do dia (múltiplos check-ins acumulam novas tarefas) |
 | `/check-out` (`/checkout`) | todos | Fecha o dia: concluídas, pendentes, justificativa |
 | `/hoje` (`/resumo`) | todos | Resumo de hoje (planejadas + aderência) |
 | `/sugestoes` | todos | Próximos passos: visão de empresa (gestão) ou individual (colaborador) |
@@ -251,7 +251,8 @@ na seção de andamento. Para validar a lógica do bot sem depender do WhatsApp,
 
 **Agente / fluxo**
 - ✅ Check-in e check-out diários com máquina de estados, comando `cancelar` e bloqueios
-  (check-out sem check-in, check-in/check-out duplicados no dia).
+  (check-out sem check-in, check-out duplicado no dia). Múltiplos check-ins no mesmo dia são
+  permitidos e **acumulam** tarefas no plano (aderência considera a soma de todos).
 - ✅ **Adendo/aderência**: compara check-out (concluídas/pendentes) com check-in (planejadas);
   calcula taxa de aderência e pendências fora do planejamento.
 - ✅ **`/hoje`**: resumo do dia para o colaborador.

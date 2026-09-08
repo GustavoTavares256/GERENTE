@@ -75,7 +75,7 @@ export async function contextoColaborador(
   const [dados, todos, checkinHoje, checkoutHoje] = await Promise.all([
     listarDadosGestao(store, tenantId),
     store.listarColaboradoresComCheckinNaData(tenantId, hojeISO()),
-    store.getCheckIn(tenantId, colaboradorId),
+    store.hasCheckIn(tenantId, colaboradorId),
     store.getCheckOut(tenantId, colaboradorId),
   ]);
 
