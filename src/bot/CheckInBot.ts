@@ -2,7 +2,7 @@ import {
   ChannelConnector,
   IncomingMessage,
 } from "../channel/ChannelConnector.js";
-import { CheckInRecord, CheckInStore } from "../store/CheckInStore.js";
+import { CheckInRecord, CheckInStore, todayLocal } from "../store/CheckInStore.js";
 import {
   listarPendenciasRecorrentes as listarPendenciasRecorrentesGestao,
   listarDadosGestao as listarDadosGestaoGestao,
@@ -75,12 +75,76 @@ export function resumoAderencia(aderencia: Aderencia): string {
   return msg;
 }
 
-// --- Parser simples de listas (aceita 1 por linha, -, *, ou vírgula) ---
+// --- Parser simples de listas (aceita 1 por linha, -, *, •, ou vírgula) ---
+// Várias linhas = cada linha é uma tarefa (vírgulas/ponto-e-vírgula são
+// literais dentro da tarefa). Linha única = aceita separação por , ou ;.
+// Uma tarefa começando com "/" (ex.: "/dados") não vira comando: só os
+// comandos conhecidos são tratados como comando.
 function parseList(text: string): string[] {
-  return text
-    .split(/\n|[,;]/)
-    .map((line) => line.replace(/^\s*[-*•]\s*/, "").trim())
+  const linhas = text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*[-*•]\s*/, "").trim())
     .filter(Boolean);
+
+  if (linhas.length === 0) return [];
+  if (linhas.length > 1) return linhas;
+
+  return linhas[0]
+    .split(/[,;]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+const COMANDOS = new Set([
+  "/check-in",
+  "/checkin",
+  "/check-out",
+  "/checkout",
+  "/hoje",
+  "/resumo",
+  "/relatorio",
+  "/exportar-csv",
+  "/exportar-json",
+  "/sugestoes",
+]);
+
+/** Para cada parte respeitando o limite de caracteres do canal (≈4096). */
+function dividirMensagem(texto: string, limite: number = 4000): string[] {
+  if (texto.length <= limite) return [texto];
+  const partes: string[] = [];
+  let atual = "";
+  for (const linha of texto.split("\n")) {
+    if (atual.length > 0 && atual.length + linha.length + 1 > limite) {
+      partes.push(atual);
+      atual = "";
+    }
+    if (linha.length > limite) {
+      if (atual) {
+        partes.push(atual);
+        atual = "";
+      }
+      let resto = linha;
+      while (resto.length > limite) {
+        partes.push(resto.slice(0, limite));
+        resto = resto.slice(limite);
+      }
+      atual = resto;
+    } else {
+      atual = atual ? atual + "\n" + linha : linha;
+    }
+  }
+  if (atual) partes.push(atual);
+  return partes;
+}
+
+async function enviarEmPartes(
+  connector: ChannelConnector,
+  to: string,
+  texto: string
+): Promise<void> {
+  for (const parte of dividirMensagem(texto)) {
+    await connector.send({ to, text: parte });
+  }
 }
 
 // --- Pendência recorrente: mesma tarefa pendente por 3+ check-outs seguidos sem justificativa ---
@@ -96,9 +160,11 @@ export function detectarPendenciasRecorrentes(
 ): PendenciaRecorrente[] {
   // checkOuts: já ordenados por data ASC.
   // Cada check-out: { data, pendentes (jsonb), justificativa_pendencia }
+  // Dias com justificativa NÃO contam para o streak ("3+ dias seguidos sem
+  // justificativa"). A flag `justificada` reflete o check-out mais recente.
   const porTarefa = new Map<
     string,
-    { original: string; dias: string[]; justificado: boolean }
+    { original: string; dias: string[]; justificado: Map<string, boolean> }
   >();
 
   for (const co of checkOuts) {
@@ -111,41 +177,53 @@ export function detectarPendenciasRecorrentes(
     for (const tarefa of pendentes) {
       const key = tarefa.trim().toLowerCase();
       if (!porTarefa.has(key)) {
-        porTarefa.set(key, { original: tarefa, dias: [], justificado: false });
+        porTarefa.set(key, {
+          original: tarefa,
+          dias: [],
+          justificado: new Map(),
+        });
       }
       const entrada = porTarefa.get(key)!;
       // Se já apareceu no dia (não deveria), evita duplicar
       if (!entrada.dias.includes(co.data)) {
         entrada.dias.push(co.data);
-        // Considera justificada se algo no dia teve justificativa
-        entrada.justificado = entrada.justificado || justificado;
+        entrada.justificado.set(co.data, justificado);
       }
     }
   }
 
   const resultado: PendenciaRecorrente[] = [];
   for (const [key, entrada] of porTarefa) {
-    // Dias consecutivos: conta a maior sequência de check-outs seguidos (por data +1 dia)
     const diasOrdem = [...entrada.dias].sort();
-    let streak = 1;
-    let maior = 1;
-    for (let i = 1; i < diasOrdem.length; i++) {
-      const anterior = new Date(diasOrdem[i - 1] + "T00:00:00Z");
-      const atual = new Date(diasOrdem[i] + "T00:00:00Z");
-      const diff = (atual.getTime() - anterior.getTime()) / 86400000;
-      if (diff === 1) {
-        streak++;
-        if (streak > maior) maior = streak;
-      } else {
-        streak = 1;
+
+    // Maior sequência de dias CONSECUTIVOS em que ficou pendente SEM justificativa.
+    let maior = 0;
+    let atual = 0;
+    let ultimoDia: string | null = null;
+    for (const dia of diasOrdem) {
+      if (entrada.justificado.get(dia)) {
+        atual = 0;
+        ultimoDia = null;
+        continue;
       }
+      if (atual > 0 && ultimoDia) {
+        const anterior = new Date(ultimoDia + "T00:00:00Z");
+        const atualD = new Date(dia + "T00:00:00Z");
+        if ((atualD.getTime() - anterior.getTime()) / 86400000 !== 1) {
+          atual = 0;
+        }
+      }
+      atual++;
+      if (atual > maior) maior = atual;
+      ultimoDia = dia;
     }
 
     if (maior >= limiteDias) {
+      const ultimoDiaPendente = diasOrdem[diasOrdem.length - 1];
       resultado.push({
         tarefa: entrada.original,
-        dias: diasOrdem,
-        justificada: entrada.justificado,
+        dias: diasOrdem.filter((d) => !entrada.justificado.get(d)),
+        justificada: Boolean(entrada.justificado.get(ultimoDiaPendente)),
       });
     }
   }
@@ -232,7 +310,7 @@ export class CheckInBot {
 
   // --- Ações dos turnos automáticos (Scheduler) ---
   private hoje(): string {
-    return new Date().toISOString().slice(0, 10);
+    return todayLocal();
   }
 
   /** Turno manhã: lembra todos os colaboradores registrados de fazer o check-in. */
@@ -299,14 +377,14 @@ export class CheckInBot {
       })
     );
 
-    for (const gestor of this.gestaoIds) {
-      const ctx = await contextoEmpresa(this.store, this.tenantId);
-      const sugestoes = await sugestoesEmpresa(this.llm, ctx);
-      const msg = formatarSugestoes(
-        "🌙 *Fim do dia — próximos passos* (empresa):",
-        sugestoes
-      );
-      if (msg && this.sugestoesProativas) {
+    const ctx = await contextoEmpresa(this.store, this.tenantId);
+    const sugestoes = await sugestoesEmpresa(this.llm, ctx);
+    const msg = formatarSugestoes(
+      "🌙 *Fim do dia — próximos passos* (empresa):",
+      sugestoes
+    );
+    if (msg && this.sugestoesProativas) {
+      for (const gestor of this.gestaoIds) {
         await connector.send({ to: gestor, text: msg });
       }
     }
@@ -329,13 +407,21 @@ export class CheckInBot {
     }
 
     const flow = this.flows.get(sender);
+    const cmd = msg.text.toLowerCase().split(" ")[0];
 
-    if (msg.text.startsWith("/") || !flow) {
+    // Comandos conhecidos sempre são comandos (mesmo durante um fluxo).
+    // Qualquer outra mensagem durante o fluxo é resposta (ex.: tarefa "/dados").
+    if (COMANDOS.has(cmd)) {
       await this.handleCommand(msg, connector);
       return;
     }
 
-    await this.advance(sender, flow, msg, connector);
+    if (flow) {
+      await this.advance(sender, flow, msg, connector);
+      return;
+    }
+
+    await this.handleCommand(msg, connector);
   }
 
   private async handleCommand(
@@ -509,14 +595,12 @@ export class CheckInBot {
   ): Promise<void> {
     if (this.gestaoIds.size === 0) return;
 
+    const recorrentes = await this.listarPendenciasRecorrentes();
+    if (recorrentes.length === 0) return;
+
+    const msg = formatarAlertasPendencias(recorrentes);
     for (const gestor of this.gestaoIds) {
-      const recorrentes = await this.listarPendenciasRecorrentes();
-      if (recorrentes.length > 0) {
-        await connector.send({
-          to: gestor,
-          text: formatarAlertasPendencias(recorrentes),
-        });
-      }
+      await connector.send({ to: gestor, text: msg });
     }
   }
 

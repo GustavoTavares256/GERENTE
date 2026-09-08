@@ -1,4 +1,4 @@
-import { CheckInStore } from "../store/CheckInStore.js";
+import { CheckInStore, todayLocal } from "../store/CheckInStore.js";
 import { detectarPendenciasRecorrentes, PendenciaRecorrente } from "../bot/CheckInBot.js";
 
 export interface DadoGestao {
@@ -14,8 +14,11 @@ const JANELA_DIAS = 7;
 
 export function dataDesde(janelaDias: number = JANELA_DIAS): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - (janelaDias - 1));
-  return d.toISOString().slice(0, 10);
+  d.setDate(d.getDate() - (janelaDias - 1));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export async function listarColaboradores(

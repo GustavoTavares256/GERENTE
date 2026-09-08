@@ -1,5 +1,14 @@
 import { Pool, PoolClient } from "pg";
 
+/** Retorna a data local no formato YYYY-MM-DD (compatível com o agendador). */
+export function todayLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export interface CheckInRecord {
   id: number;
   tenantId: string;
@@ -47,7 +56,12 @@ function jsonText(v: unknown): string {
 }
 
 function isoDate(v: unknown): string {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (v instanceof Date) {
+    const y = v.getFullYear();
+    const m = String(v.getMonth() + 1).padStart(2, "0");
+    const day = String(v.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
   return String(v ?? "").slice(0, 10);
 }
 
@@ -125,7 +139,7 @@ export class CheckInStore {
   }
 
   private today(): string {
-    return new Date().toISOString().slice(0, 10);
+    return todayLocal();
   }
 
   async hasCheckIn(tenantId: string, colaboradorId: string): Promise<boolean> {

@@ -355,28 +355,44 @@ export function startDashboard(
 ): import("node:http").Server {
   const server = createServer(
     async (req: IncomingMessage, res: ServerResponse) => {
-      const url = (req.url ?? "/").split("?")[0];
-      let status = 200;
-      let body: string;
-      let type: string;
+      try {
+        const url = (req.url ?? "/").split("?")[0];
+        let status = 200;
+        let body: string;
+        let type: string;
 
-      if (url === "/api/relatorio.json") {
-        const dados = await listarDadosGestao(store, tenantId, dataDesde());
-        body = toJson(dados);
-        type = CONTENT_TYPE.json;
-      } else if (url === "/") {
-        body = await renderHtml(store, tenantId);
-        type = CONTENT_TYPE.html;
-      } else {
-        status = 404;
-        body = "Não encontrado";
-        type = "text/plain; charset=utf-8";
+        if (url === "/api/relatorio.json") {
+          const dados = await listarDadosGestao(store, tenantId, dataDesde());
+          body = toJson(dados);
+          type = CONTENT_TYPE.json;
+        } else if (url === "/") {
+          body = await renderHtml(store, tenantId);
+          type = CONTENT_TYPE.html;
+        } else {
+          status = 404;
+          body = "Não encontrado";
+          type = "text/plain; charset=utf-8";
+        }
+
+        res.writeHead(status, { "Content-Type": type });
+        res.end(body);
+      } catch (err) {
+        console.error("[Dashboard] Erro ao processar requisição:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end("Erro interno no dashboard.");
+        } else {
+          res.end();
+        }
       }
-
-      res.writeHead(status, { "Content-Type": type });
-      res.end(body);
     }
   );
+
+  server.on("error", (err) => {
+    console.error(
+      `[Dashboard] Falha ao iniciar em ${options.host ?? "127.0.0.1"}:${options.port}: ${err.message}`
+    );
+  });
 
   server.listen(options.port, options.host ?? "127.0.0.1", () => {
     const host = options.host ?? "127.0.0.1";

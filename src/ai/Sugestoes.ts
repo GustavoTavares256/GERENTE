@@ -4,7 +4,7 @@
 // Duas visões:
 //  - empresa (gestão): próximos passos estratégicos de toda a empresa.
 //  - individual (colaborador): próximos passos de produtividade da pessoa.
-import { CheckInStore } from "../store/CheckInStore.js";
+import { CheckInStore, todayLocal } from "../store/CheckInStore.js";
 import { listarDadosGestao, DadoGestao } from "../report/gestao.js";
 import { LLMProvider, LLMError } from "./LLMProvider.js";
 
@@ -34,7 +34,7 @@ export interface ContextoColaborador {
 }
 
 function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocal();
 }
 
 /** Reúne o contexto da empresa (últimos 7 dias + participação de hoje). */

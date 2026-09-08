@@ -12,6 +12,8 @@ export interface LLMOptions {
   model?: string;
   /** Temperatura. Padrão: 0.4 */
   temperature?: number;
+  /** Timeout em ms da chamada. Padrão: OPENAI_TIMEOUT_MS ou 30000 */
+  timeoutMs?: number;
 }
 
 export class LLMError extends Error {}
@@ -34,6 +36,7 @@ export class LLMProvider {
   private baseUrl: string;
   private model: string;
   private temperature: number;
+  private timeoutMs: number;
 
   constructor(options: LLMOptions = {}) {
     const cfg = envFromOptions(
@@ -45,7 +48,10 @@ export class LLMProvider {
     this.apiKey = cfg.apiKey;
     this.baseUrl = cfg.baseUrl.replace(/\/$/, "");
     this.model = cfg.model;
-    this.temperature = options.temperature ?? Number(process.env.OPENAI_TEMPERATURE ?? "0.4");
+    this.temperature =
+      options.temperature ?? Number(process.env.OPENAI_TEMPERATURE ?? "0.4");
+    this.timeoutMs =
+      options.timeoutMs ?? Number(process.env.OPENAI_TIMEOUT_MS ?? "30000");
   }
 
   /** true se há API key configurada (habilita chamada real ao LLM). */
@@ -76,6 +82,7 @@ export class LLMProvider {
           { role: "user", content: user },
         ],
       }),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
 
     if (!res.ok) {
