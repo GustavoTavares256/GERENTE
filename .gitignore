@@ -6,3 +6,4 @@ dist/
 .wwebjs_cache/
 data/
 
+dash.log

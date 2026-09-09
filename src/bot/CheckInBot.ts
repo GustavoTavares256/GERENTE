@@ -166,6 +166,7 @@ async function enviarEmPartes(
 export interface PendenciaRecorrente {
   tarefa: string;
   dias: string[]; // datas (check-out) em que ficou pendente e não justificadas
+  diasJustificados: string[]; // datas em que ficou pendente MAS houve justificativa
   justificada: boolean; // se o check-out mais recente tinha justificativa
 }
 
@@ -238,6 +239,9 @@ export function detectarPendenciasRecorrentes(
       resultado.push({
         tarefa: entrada.original,
         dias: diasOrdem.filter((d) => !entrada.justificado.get(d)),
+        diasJustificados: diasOrdem.filter(
+          (d) => entrada.justificado.get(d) === true
+        ),
         justificada: Boolean(entrada.justificado.get(ultimoDiaPendente)),
       });
     }
@@ -255,7 +259,10 @@ export function formatarAlertasPendencias(
     .map((p) => {
       const dias = p.dias.map((d) => d.slice(5)).join(", ");
       const status = p.justificada ? "(justificada)" : "(sem justificativa)";
-      return `- ${p.tarefa} — ${dias} ${status}`;
+      const just = p.diasJustificados.length
+        ? ` | justificados: ${p.diasJustificados.map((d) => d.slice(5)).join(", ")}`
+        : "";
+      return `- ${p.tarefa} — ${dias} ${status}${just}`;
     })
     .join("\n");
   return msg;

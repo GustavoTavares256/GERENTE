@@ -6,7 +6,7 @@
 //  - individual (colaborador): próximos passos de produtividade da pessoa.
 import { CheckInStore, todayLocal } from "../store/CheckInStore.js";
 import { listarDadosGestao, DadoGestao } from "../report/gestao.js";
-import { LLMProvider, LLMError } from "./LLMProvider.js";
+import { LLMProvider } from "./LLMProvider.js";
 
 export interface Sugestao {
   area: string;
@@ -85,6 +85,9 @@ export async function contextoColaborador(
     concluidas: 0,
     aderencia: -1,
     recorrentes: [],
+    horasPlanejadas: 0,
+    horasConcluidas: 0,
+    horasPendentes: 0,
   };
 
   return {
@@ -228,7 +231,10 @@ export async function sugestoesEmpresa(
     const sugestoes = itens.map((l) => parseSugestoes(l, "próximos passos"));
     return sugestoes.length > 0 ? sugestoes.slice(0, 5) : fallback;
   } catch (e) {
-    if (e instanceof LLMError) return fallback;
+    if (e instanceof Error) {
+      console.error("[Sugestoes] Erro ao gerar sugestões (empresa):", e.message);
+      return fallback;
+    }
     throw e;
   }
 }
@@ -269,7 +275,10 @@ export async function sugestoesColaborador(
     const sugestoes = itens.map((l) => parseSugestoes(l, "produtividade"));
     return sugestoes.length > 0 ? sugestoes.slice(0, 3) : fallback;
   } catch (e) {
-    if (e instanceof LLMError) return fallback;
+    if (e instanceof Error) {
+      console.error("[Sugestoes] Erro ao gerar sugestões (colaborador):", e.message);
+      return fallback;
+    }
     throw e;
   }
 }
