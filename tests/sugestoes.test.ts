@@ -209,10 +209,10 @@ class FakeConnector implements ChannelConnector {
   }
 }
 
-test("bot: envia sugestão proativa (individual) após o check-out", async () => {
+test("bot: não envia sugestão proativa após o check-out (só nos turnos)", async () => {
   const store = await connectTestStore("sugestoes");
   try {
-    // colaborador tem pendência recorrente nos últimos 7 dias → regras geram sugestão
+    // colaborador tem pendência recorrente nos últimos 7 dias → regras gerariam sugestão
     for (const off of [-2, -1]) {
       const dia = offsetDate(off);
       await store.seedRecord({ tenantId: "codxis", colaboradorId: "ana", data: dia, tipo: "check_out", tarefas: [], pendentes: ["Bug X"] });
@@ -229,8 +229,8 @@ test("bot: envia sugestão proativa (individual) após o check-out", async () =>
     await conn.sayAs("ana", "faltou tempo");
 
     const msgs = conn.sent.map((m) => m.text).join("\n");
-    assert.match(msgs, /Próximos passos pra você/);
     assert.match(msgs, /Bug X/);
+    assert.doesNotMatch(msgs, /Próximos passos|Sugestões/);
   } finally {
     await store.close();
   }

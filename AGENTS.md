@@ -11,7 +11,7 @@ evitando que o colaborador digite a mesma tarefa duas vezes.
   de Edge Functions do Lovable/CRM. (Leitura anterior integrava ao CRM; foi descartada para
   desbloquear o MVP.)
 - Canal de conversa: **WhatsApp**. Para teste rápido usa `whatsapp-web.js` (QR code, gratuito).
-  Em produção troca-se o conector por provedor pago (Z-API/Twilio) sem reescrever a lógica.
+  Em produção troca-se o conector por provedor pago (UAZAPI/Z-API/Twilio) sem reescrever a lógica.
 
 ## Arquitetura
 
@@ -19,6 +19,7 @@ evitando que o colaborador digite a mesma tarefa duas vezes.
 Bot externo (Node + TypeScript)
   ├── src/channel/ChannelConnector.ts    → interface de canal (agente independente do canal)
   ├── src/channel/WhatsAppConnector.ts   → conector WhatsApp (whatsapp-web.js, QR code)
+  ├── src/channel/UazapiConnector.ts     → conector WhatsApp via UAZAPI (API REST + SSE) — produção
   ├── src/channel/ConsoleConnector.ts    → conector de terminal (teste sem WhatsApp)
   ├── src/bot/CheckInBot.ts              → máquina de estados check-in/check-out + aderência + alertas + sugestões
   ├── src/store/CheckInStore.ts          → persistência PostgreSQL (pg)
@@ -31,8 +32,10 @@ Bot externo (Node + TypeScript)
   ├── src/agendar/iniciar.ts             → `iniciarAgendador(bot, connector)` — liga os turnos nos entrypoints
   ├── src/dashboard/server.ts            → servidor HTTP do painel web de gestão
   ├── src/dashboard/start-dashboard.ts   → entrypoint do dashboard
-  ├── src/index.ts                       → entrypoint WhatsApp
-  └── src/index-console.ts               → entrypoint console (teste)
+  ├── src/index.ts                       → entrypoint WhatsApp (whatsapp-web.js / QR)
+  ├── src/index-uazapi.ts                → entrypoint WhatsApp via UAZAPI (produção)
+  ├── src/index-console.ts               → entrypoint console (teste)
+  └── qr-pairing.html                    → página local para escanear o QR da instância UAZAPI
 ```
 
 **Camada de abstração de canal** (`ChannelConnector`): a lógica do bot só conhece esta interface.
@@ -116,6 +119,7 @@ O schema é criado automaticamente pelo `CheckInStore.connect()`.
 | Comando | Ação |
 |---|---|
 | `npm run dev` | Inicia o bot no WhatsApp (mostra QR no terminal) |
+| `npm run dev:uazapi` | Inicia o bot no WhatsApp via UAZAPI (API REST + SSE, produção) |
 | `npm run dev:console` | Inicia o bot no terminal (teste sem WhatsApp) |
 | `npm run dev:dashboard` | Sobe o painel web da gestão (http://127.0.0.1:3111/) |
 | `npm run typecheck` | Verifica tipos (tsc --noEmit) |
@@ -131,6 +135,30 @@ O schema é criado automaticamente pelo `CheckInStore.connect()`.
 1. `npm install` (dependências de produção: `whatsapp-web.js`, `qrcode-terminal`, `pg`)
 2. `npm run dev` → escaneia o QR com o celular (WhatsApp → Aparelhos conectados → Conectar aparelho)
 3. Envie mensagens para si mesmo: `/check-in`, depois `/check-out`, depois `/hoje`
+
+## Conectar via UAZAPI (produção, sem whatsapp-web.js)
+
+A UAZAPI expõe o WhatsApp por API REST + SSE, sem depender de Chrome local. O QR é gerado
+pela API e pode ser exibido na página `qr-pairing.html` (no navegador), não no terminal.
+
+1. **Criar a instância** (uma vez) — precisa do `UAZAPI_ADMIN_TOKEN`:
+   ```powershell
+   POST https://free.uazapi.com/instance/init   header: admintoken
+   body:  {"name":"gerente-codxis"}
+   # resposta traz: token = <TOKEN_DA_INSTANCIA>
+   ```
+2. **Conectar** e obter o QR:
+   ```powershell
+   POST https://free.uazapi.com/instance/connect   header: token: <TOKEN_DA_INSTANCIA>
+   # resposta traz: instance.qrcode (base64 PNG)
+   ```
+3. Abrir `qr-pairing.html` (QR já embutido + polling de status) e escanear com
+   WhatsApp → Aparelhos conectados → Conectar aparelho.
+4. Gravar `.env`: `UAZAPI_TOKEN=<TOKEN_DA_INSTANCIA>` (e `UAZAPI_ADMIN_TOKEN` separado).
+5. Rodar o bot: `npm run dev:uazapi`.
+
+> ⚠️ No plano free a instância é **apagada automaticamente após ~1h**. Em produção,
+> use a hospedagem paga da UAZAPI (instância permanente) ou um provedor como Z-API/Twilio.
 
 ## Testar sem WhatsApp (console)
 
@@ -167,8 +195,10 @@ de gestão configurado — sem depender de ninguém rodar `/relatorio`.
 
 **Sugestões inteligentes do gerente**: analisa os dados agregados e propõe **próximos passos** para a
 empresa ou para o colaborador. Com `OPENAI_API_KEY`, um LLM formula as sugestões; sem ela, um fallback
-por regras (determinístico) assume. São enviadas proativamente após o check-out e o `/hoje`, com foco
-conforme o remetente (gestão → visão de empresa; colaborador → visão individual), e sob demanda via `/sugestoes`.
+por regras (determinístico) assume. São enviadas **somente nos turnos do agendador** — as sugestões
+individuais do colaborador vão junto com a pergunta do check-out no fim do do dia — e **sob demanda** via
+`/sugestoes` (foco conforme o remetente: gestão → visão de empresa; colaborador → visão individual).
+A conversa se encerra ao terminar: não há envio proativo após check-out/`/hoje`.
 
 ## Variáveis de ambiente
 
@@ -187,7 +217,9 @@ conforme o remetente (gestão → visão de empresa; colaborador → visão indi
 | `OPENAI_API_KEY` | vazio | Chave do provedor LLM (OpenAI-compatible). Usada tanto na **conversa guiada** (`Dialogo`, perguntas) quanto nas **sugestões inteligentes**. Sem ela, ambos usam fallback |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | URL base da API (OpenAI-compatible: Groq, Together, Ollama, etc.) |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Modelo usado nos diálogos e nas sugestões |
-| `SUGESTOES_ATIVAS` | `true` | Se as sugestões proativas são enviadas após check-out/`/hoje` |
+| `UAZAPI_BASE_URL` | `https://free.uazapi.com` | URL base da API UAZAPI (provedor de WhatsApp por REST+SSE) |
+| `UAZAPI_TOKEN` | vazio | Token da **instância** UAZAPI (usado pelo bot em `/send/text` e `/sse`). Obtido no `POST /instance/init` ou no painel da instância |
+| `UAZAPI_ADMIN_TOKEN` | vazio | Token **admin** da conta UAZAPI (só p/ criar instâncias, `/instance/init`) — não vai pro bot |
 
 Exemplo com gestão configurada no console:
 
@@ -268,7 +300,7 @@ na seção de andamento. Para validar a lógica do bot sem depender do WhatsApp,
 - ✅ **Exportação** `/exportar-csv` e `/exportar-json` dos dados de gestão.
 - ✅ **Sugestões inteligentes do gerente** (`src/ai/Sugestoes.ts`): analisa os dados e propõe
   próximos passos para a empresa ou para o colaborador — com LLM (`OPENAI_API_KEY`) ou fallback
-  por regras; proativas após check-out/`/hoje` e sob demanda via `/sugestoes`.
+  por regras; enviadas **somente nos turnos** (check-out do fim do dia) e sob demanda via `/sugestoes`.
 - ✅ **Turnos automáticos** (`src/agendar/Scheduler.ts`): dispara nos horários configurados e
   **inicia a conversa guiada de check-in/check-out** automaticamente (sem digitar comando), para a
   lista fixa `FUNCIONARIOS_IDS`, com a cobrança da tarde e as **sugestões individuais** enviadas

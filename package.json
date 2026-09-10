@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:uazapi": "tsx src/index-uazapi.ts",
     "dev:console": "tsx src/index-console.ts",
     "dev:dashboard": "tsx src/dashboard/start-dashboard.ts",
     "build": "tsc",

@@ -240,7 +240,6 @@ test("fecharDia inicia a conversa de check-out com sugestões individuais para q
   const bot = new CheckInBot(store, {
     funcionariosIds: ["f1@c.us", "f2@c.us", "f3@c.us"],
     gestaoIds: ["gestor@c.us"],
-    sugestoesProativas: true,
     llm: new FakeLLM() as unknown as LLMProvider,
   });
   await bot.fecharDia(conn);
