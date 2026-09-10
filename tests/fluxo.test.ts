@@ -44,7 +44,10 @@ function findSent(conn: FakeConnector, pattern: RegExp): string {
 
 async function newBot(): Promise<{ store: CheckInStore; bot: CheckInBot; conn: FakeConnector }> {
   const store = await connectTestStore("fluxo");
-  const bot = new CheckInBot(store, { llm: null });
+  const bot = new CheckInBot(store, {
+    llm: null,
+    funcionariosIds: ["colab-teste"],
+  });
   const conn = new FakeConnector();
   bot.onConnect(conn);
   return { store, bot, conn };
@@ -159,6 +162,40 @@ test("check-out 100% de aderência quando tudo foi concluído", async () => {
     await conn.say("nenhuma");
 
     assert.match(findSent(conn, /Taxa de aderência: 100%/), /Taxa de aderência: 100%/);
+  } finally {
+    await store.close();
+  }
+});
+
+test("trava de seguranca: remetente fora da lista e ignorado", async () => {
+  const store = await connectTestStore("fluxo");
+  const bot = new CheckInBot(store, {
+    llm: null,
+    funcionariosIds: ["permitido@c.us"],
+  });
+  const conn = new FakeConnector();
+  bot.onConnect(conn);
+  try {
+    // colab-teste NAO esta na lista -> qualquer mensagem e ignorada
+    await conn.say("/check-in");
+    await conn.say("qualquer coisa");
+    assert.equal(conn.sent.length, 0);
+  } finally {
+    await store.close();
+  }
+});
+
+test("trava de seguranca: permite quem esta na lista de funcionarios", async () => {
+  const store = await connectTestStore("fluxo");
+  const bot = new CheckInBot(store, {
+    llm: null,
+    funcionariosIds: ["colab-teste"],
+  });
+  const conn = new FakeConnector();
+  bot.onConnect(conn);
+  try {
+    await conn.say("/check-in");
+    assert.match(lastSent(conn), /Quais são suas tarefas/);
   } finally {
     await store.close();
   }

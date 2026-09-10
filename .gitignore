@@ -5,5 +5,7 @@ dist/
 .wwebjs_auth/
 .wwebjs_cache/
 data/
+qr-pairing.html
+qr-pareamento.png
 
 dash.log

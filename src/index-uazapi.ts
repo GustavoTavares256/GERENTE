@@ -1,8 +1,9 @@
 import "dotenv/config";
+import { UazapiConnector } from "./channel/UazapiConnector.js";
 import { CheckInBot } from "./bot/CheckInBot.js";
 import { CheckInStore } from "./store/CheckInStore.js";
-import { ConsoleConnector } from "./channel/ConsoleConnector.js";
 import { LLMProvider } from "./ai/LLMProvider.js";
+import { iniciarAgendador } from "./agendar/iniciar.js";
 
 const databaseUrl =
   process.env.DATABASE_URL ??
@@ -25,8 +26,14 @@ const bot = new CheckInBot(store, {
   llm: new LLMProvider(),
 });
 
-const connector = new ConsoleConnector();
+const connector: UazapiConnector = new UazapiConnector();
 bot.onConnect(connector);
+iniciarAgendador(bot, connector);
 
-console.log("[Gerente da Codxis] Modo console (sem WhatsApp, sem agendador)...");
+console.log("[Gerente da Codxis] Iniciando via UAZAPI...");
 await connector.start();
+
+// Mantém o processo vivo enquanto o SSE estiver ativo.
+process.on("SIGINT", () => process.exit(0));
+process.on("SIGTERM", () => process.exit(0));
+setInterval(() => {}, 1 << 30);

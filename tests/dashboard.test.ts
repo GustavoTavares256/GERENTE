@@ -28,15 +28,21 @@ test("dashboard: recebe consulta via HTTP e responde HTML/JSON", async () => {
   const store = await connectTestStore("dashboard");
   await semear(store);
 
-  const port = 49871;
-  const server = startDashboard(store, "codxis", { port, host: "127.0.0.1" });
+  const server = startDashboard(store, "codxis", { port: 0, host: "127.0.0.1" });
   after(() => {
     server.close();
     void store.close();
   });
 
-  // espera o servidor subir
-  await new Promise((r) => setTimeout(r, 800));
+  // aguarda o servidor subir e obtém a porta real escolhida pelo SO
+  await new Promise((resolve) => {
+    if (server.listening) {
+      resolve(undefined);
+    } else {
+      server.once("listening", () => resolve(undefined));
+    }
+  });
+  const port = (server.address() as { port: number }).port;
 
   const html = await fetch(`http://127.0.0.1:${port}/`).then((r) => r.text());
   assert.match(html, /GERENTE CODXIS/);

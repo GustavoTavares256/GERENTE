@@ -24,7 +24,6 @@ const bot = new CheckInBot(store, {
   funcionariosIds,
   tenantId: process.env.TENANT_ID ?? "codxis",
   llm: new LLMProvider(),
-  sugestoesProativas: (process.env.SUGESTOES_ATIVAS ?? "true").toLowerCase() !== "false",
 });
 
 const connector: WhatsAppConnector = new WhatsAppConnector();

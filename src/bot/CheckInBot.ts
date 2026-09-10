@@ -291,8 +291,6 @@ export interface BotOptions {
   tenantId?: string;
   /** Provedor LLM para as sugestões inteligentes. Sem key, usa fallback por regras. */
   llm?: LLMProvider | null;
-  /** Envia sugestões proativas após interações relevantes (check-out, /hoje). Padrão: true. */
-  sugestoesProativas?: boolean;
 }
 
 export class CheckInBot {
@@ -301,7 +299,6 @@ export class CheckInBot {
   private funcionariosIds: Set<string>;
   private tenantId: string;
   private llm: LLMProvider | null;
-  private sugestoesProativas: boolean;
 
   constructor(
     private store: CheckInStore,
@@ -312,7 +309,6 @@ export class CheckInBot {
     this.tenantId = this.options.tenantId ?? TENANT_DEFAULT;
     this.llm =
       this.options.llm === undefined ? new LLMProvider() : this.options.llm;
-    this.sugestoesProativas = this.options.sugestoesProativas ?? true;
   }
 
   onConnect(connector: ChannelConnector): void {
@@ -376,8 +372,8 @@ export class CheckInBot {
 
   /**
    * Turno fim do dia: inicia a conversa guiada de check-out para quem fez
-   * check-in mas ainda não fechou o dia, e envia as sugestões (visão empresa)
-   * para a gestão. Usa a lista fixa.
+   * check-in mas ainda não fechou o dia, enviando as sugestões individuais
+   * do colaborador junto com a pergunta de check-out. Usa a lista fixa.
    */
   async fecharDia(connector: ChannelConnector): Promise<void> {
     const comCheckout = new Set(
@@ -395,7 +391,21 @@ export class CheckInBot {
           concluidas: [],
           pendentes: [],
         });
-        await this.perguntar(c, connector, "concluidas", "check-out do fim do dia");
+        const ctx = await contextoColaborador(this.store, this.tenantId, c);
+        const sugestoes = await sugestoesColaborador(this.llm, ctx);
+        const sugestoesMsg = formatarSugestoes(
+          "💡 *Sugestões para você:*",
+          sugestoes
+        );
+        const pergunta = await redigirPergunta(
+          "concluidas",
+          this.llm,
+          "check-out do fim do dia"
+        );
+        const corpo = sugestoesMsg
+          ? `${sugestoesMsg}\n\n${pergunta}`
+          : pergunta;
+        await connector.send({ to: c, text: corpo });
       })
     );
 
@@ -405,15 +415,21 @@ export class CheckInBot {
       "🌙 *Fim do dia — próximos passos* (empresa):",
       sugestoes
     );
-    if (msg && this.sugestoesProativas) {
+    if (msg && this.gestaoIds.size > 0) {
       for (const gestor of this.gestaoIds) {
         await connector.send({ to: gestor, text: msg });
       }
     }
+
   }
 
   private isGestao(sender: string): boolean {
     return this.gestaoIds.has(sender);
+  }
+
+  /** true se o remetente está nas listas permitidas (funcionários ou gestão). */
+  private isPermitido(sender: string): boolean {
+    return this.funcionariosIds.has(sender) || this.gestaoIds.has(sender);
   }
 
   private async handle(
@@ -421,6 +437,10 @@ export class CheckInBot {
     connector: ChannelConnector
   ): Promise<void> {
     const sender = msg.senderId;
+
+    if (!this.isPermitido(sender)) {
+      return;
+    }
 
     if (msg.text.toLowerCase() === "cancelar") {
       this.flows.delete(sender);
@@ -452,6 +472,10 @@ export class CheckInBot {
   ): Promise<void> {
     const sender = msg.senderId;
     const cmd = msg.text.toLowerCase().split(" ")[0];
+
+    // Texto solto sem fluxo ativo (ex.: "oi", "bugou") → ignora em silêncio,
+    // sem devolver a lista de comandos toda vez.
+    if (!cmd.startsWith("/")) return;
 
     switch (cmd) {
       case "/check-in":
@@ -520,13 +544,27 @@ export class CheckInBot {
         await this.sendSugestoes(sender, connector);
         return;
 
+      case "/help":
+      case "/ajuda":
+        await this.listarComandos(sender, connector);
+        return;
+
       default:
-        await connector.send({
-          to: sender,
-          text:
-            "Comandos:\n/check-in — registrar tarefas do dia\n/check-out — fechar o dia\n/hoje — ver resumo de hoje\n/sugestoes — próximos passos\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
-        });
+        // Comando desconhecido (ex.: /xyz) → mostra a lista de comandos.
+        await this.listarComandos(sender, connector);
     }
+  }
+
+  /** Mostra a lista de comandos do bot. */
+  private async listarComandos(
+    sender: string,
+    connector: ChannelConnector
+  ): Promise<void> {
+    await connector.send({
+      to: sender,
+      text:
+        "Comandos:\n/check-in — registrar tarefas do dia\n/check-out — fechar o dia\n/hoje — ver resumo de hoje\n/sugestoes — próximos passos\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
+    });
   }
 
   private async advance(
@@ -614,7 +652,6 @@ export class CheckInBot {
     });
 
     await this.verificarEAlertarPendenciasRecorrentes(connector);
-    await this.enviarSugestoesProativas(sender, connector);
   }
 
   private async verificarEAlertarPendenciasRecorrentes(
@@ -657,29 +694,6 @@ export class CheckInBot {
     }
   }
 
-  /** Envia sugestões proativamente após interações relevantes (check-out, /hoje). */
-  private async enviarSugestoesProativas(
-    sender: string,
-    connector: ChannelConnector
-  ): Promise<void> {
-    if (!this.sugestoesProativas) return;
-
-    if (this.isGestao(sender)) {
-      const ctx = await contextoEmpresa(this.store, this.tenantId);
-      const sugestoes = await sugestoesEmpresa(this.llm, ctx);
-      const msg = formatarSugestoes(
-        "🧭 *Próximos passos sugeridos* (empresa):",
-        sugestoes
-      );
-      if (msg) await connector.send({ to: sender, text: msg });
-    } else {
-      const ctx = await contextoColaborador(this.store, this.tenantId, sender);
-      const sugestoes = await sugestoesColaborador(this.llm, ctx);
-      const msg = formatarSugestoes("🧭 *Próximos passos pra você*:", sugestoes);
-      if (msg) await connector.send({ to: sender, text: msg });
-    }
-  }
-
   private async sendResumo(
     sender: string,
     connector: ChannelConnector
@@ -712,7 +726,6 @@ export class CheckInBot {
     }
 
     await connector.send({ to: sender, text: msg });
-    await this.enviarSugestoesProativas(sender, connector);
   }
 
   private async sendRelatorio(
