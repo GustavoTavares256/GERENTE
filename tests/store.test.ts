@@ -26,6 +26,21 @@ test("store: registrar check-in permite lê-lo novamente", async () => {
   }
 });
 
+test("store: múltiplos check-ins no dia ficam registrados em ordem", async () => {
+  const store = await connectTestStore("store");
+  try {
+    await store.recordCheckIn("codxis", "colab-1", ["A", "B"]);
+    await store.recordCheckIn("codxis", "colab-1", ["C"]);
+    const registros = await store.getCheckIns("codxis", "colab-1");
+    assert.equal(registros.length, 2);
+    assert.deepEqual(JSON.parse(registros[0].tarefas), ["A", "B"]);
+    assert.deepEqual(JSON.parse(registros[1].tarefas), ["C"]);
+    assert.equal(await store.hasCheckIn("codxis", "colab-1"), true);
+  } finally {
+    await store.close();
+  }
+});
+
 test("store: registrar check-out grava concluídas, pendentes e justificativa", async () => {
   const store = await connectTestStore("store");
   try {

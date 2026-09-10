@@ -117,13 +117,21 @@ test("bloqueio: check-out antes de check-in é rejeitado", async () => {
   }
 });
 
-test("bloqueio: segundo check-in no mesmo dia é rejeitado", async () => {
+test("bloqueio: segundo check-in no mesmo dia acumula tarefas no plano", async () => {
   const { store, conn } = await newBot();
   try {
     await conn.say("/check-in");
     await conn.say("Tarefa A");
     await conn.say("/check-in");
-    assert.match(lastSent(conn), /já fez o check-in hoje/);
+    assert.match(lastSent(conn), /adicionar ao check-in/);
+
+    await conn.say("Tarefa B");
+    assert.match(findSent(conn, /Check-in registrado/), /Tarefa B/);
+
+    await conn.say("/hoje");
+    const resumo = findSent(conn, /Planejadas/);
+    assert.match(resumo, /1\. Tarefa A/);
+    assert.match(resumo, /2\. Tarefa B/);
   } finally {
     await store.close();
   }

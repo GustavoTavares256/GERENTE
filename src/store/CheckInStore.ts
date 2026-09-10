@@ -1,5 +1,14 @@
 import { Pool, PoolClient } from "pg";
 
+/** Retorna a data local no formato YYYY-MM-DD (compatível com o agendador). */
+export function todayLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export interface CheckInRecord {
   id: number;
   tenantId: string;
@@ -10,6 +19,8 @@ export interface CheckInRecord {
   pendentes: string | null;
   justificativa_pendencia: string | null;
   criadoEm: string;
+  /** Mapa "tarefa (texto) → horas estimadas" registrado no check-in (opcional). */
+  estimativas: string | null;
 }
 
 interface CheckInRow {
@@ -22,6 +33,7 @@ interface CheckInRow {
   pendentes: unknown;
   justificativa_pendencia: string | null;
   criado_em: unknown;
+  estimativas_horas: unknown;
 }
 
 const SCHEMA = `
@@ -34,6 +46,7 @@ CREATE TABLE IF NOT EXISTS checkins_diarios (
   tarefas JSONB NOT NULL,
   pendentes JSONB,
   justificativa_pendencia TEXT,
+  estimativas_horas JSONB,
   criado_em TIMESTAMPTZ NOT NULL
 );
 
@@ -47,7 +60,12 @@ function jsonText(v: unknown): string {
 }
 
 function isoDate(v: unknown): string {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (v instanceof Date) {
+    const y = v.getFullYear();
+    const m = String(v.getMonth() + 1).padStart(2, "0");
+    const day = String(v.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
   return String(v ?? "").slice(0, 10);
 }
 
@@ -67,6 +85,10 @@ function toRecord(row: CheckInRow): CheckInRecord {
     pendentes: row.pendentes == null ? null : jsonText(row.pendentes),
     justificativa_pendencia: row.justificativa_pendencia,
     criadoEm: isoDateTime(row.criado_em),
+    estimativas:
+      row.estimativas_horas == null
+        ? null
+        : jsonText(row.estimativas_horas ?? "{}"),
   };
 }
 
@@ -85,7 +107,25 @@ export class CheckInStore {
     // valida a conexão antes de prosseguir
     await pool.query("SELECT 1");
     await pool.query(SCHEMA);
+    await CheckInStore.ensureColumns(pool);
     return new CheckInStore(pool);
+  }
+
+  /** Garante colunas adicionadas em versões posteriores (migrações idempotentes). */
+  private static async ensureColumns(pool: Pool): Promise<void> {
+    const colunas = [
+      { nome: "estimativas_horas", ddl: "JSONB" },
+    ];
+    for (const c of colunas) {
+      const res = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'checkins_diarios' AND column_name = $1`,
+        [c.nome]
+      );
+      if ((res.rowCount ?? 0) === 0) {
+        await pool.query(`ALTER TABLE checkins_diarios ADD COLUMN ${c.nome} ${c.ddl}`);
+      }
+    }
   }
 
   async close(): Promise<void> {
@@ -106,11 +146,12 @@ export class CheckInStore {
     tarefas: string[];
     pendentes?: string[];
     justificativa?: string | null;
+    estimativas?: Record<string, number>;
   }): Promise<void> {
     await this.pool.query(
       `INSERT INTO checkins_diarios
-        (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, criado_em)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        (tenant_id, colaborador_id, data, tipo, tarefas, pendentes, justificativa_pendencia, estimativas_horas, criado_em)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         input.tenantId,
         input.colaboradorId,
@@ -119,13 +160,14 @@ export class CheckInStore {
         JSON.stringify(input.tarefas),
         input.pendentes ? JSON.stringify(input.pendentes) : null,
         input.justificativa ?? null,
+        input.estimativas ? JSON.stringify(input.estimativas) : null,
         input.data + "T18:00:00.000Z",
       ]
     );
   }
 
   private today(): string {
-    return new Date().toISOString().slice(0, 10);
+    return todayLocal();
   }
 
   async hasCheckIn(tenantId: string, colaboradorId: string): Promise<boolean> {
@@ -141,17 +183,19 @@ export class CheckInStore {
   async recordCheckIn(
     tenantId: string,
     colaboradorId: string,
-    tarefas: string[]
+    tarefas: string[],
+    estimativas?: Record<string, number>
   ): Promise<void> {
     await this.pool.query(
       `INSERT INTO checkins_diarios
-        (tenant_id, colaborador_id, data, tipo, tarefas, criado_em)
-       VALUES ($1, $2, $3, 'check_in', $4, $5)`,
+        (tenant_id, colaborador_id, data, tipo, tarefas, estimativas_horas, criado_em)
+       VALUES ($1, $2, $3, 'check_in', $4, $5, $6)`,
       [
         tenantId,
         colaboradorId,
         this.today(),
         JSON.stringify(tarefas),
+        estimativas ? JSON.stringify(estimativas) : null,
         new Date().toISOString(),
       ]
     );
@@ -171,14 +215,22 @@ export class CheckInStore {
     tenantId: string,
     colaboradorId: string
   ): Promise<CheckInRecord | null> {
+    const todos = await this.getCheckIns(tenantId, colaboradorId);
+    return todos[todos.length - 1] ?? null;
+  }
+
+  /** Todos os check-ins de hoje, em ordem de registro (permite múltiplos check-ins acumulados). */
+  async getCheckIns(
+    tenantId: string,
+    colaboradorId: string
+  ): Promise<CheckInRecord[]> {
     const res = await this.pool.query(
       `SELECT * FROM checkins_diarios
        WHERE tenant_id = $1 AND colaborador_id = $2 AND data = $3 AND tipo = 'check_in'
-       LIMIT 1`,
+       ORDER BY id ASC`,
       [tenantId, colaboradorId, this.today()]
     );
-    const row = res.rows[0] as CheckInRow | undefined;
-    return row ? toRecord(row) : null;
+    return (res.rows as CheckInRow[]).map(toRecord);
   }
 
   async getCheckOut(
@@ -285,6 +337,72 @@ export class CheckInStore {
     return (res.rows as Array<{ colaborador_id: string }>).map(
       (r) => r.colaborador_id
     );
+  }
+
+  /** Datas e horários dos check-ins de hoje (timeline de participação). */
+  async listarCheckinsHoje(tenantId: string): Promise<Array<{ colaboradorId: string; criadoEm: string }>> {
+    const res = await this.pool.query(
+      `SELECT colaborador_id, criado_em FROM checkins_diarios
+       WHERE tenant_id = $1 AND tipo = 'check_in' AND data = $2
+       ORDER BY id ASC`,
+      [tenantId, this.today()]
+    );
+    return (res.rows as Array<{ colaborador_id: string; criado_em: Date }>).map(
+      (r) => ({
+        colaboradorId: r.colaborador_id,
+        criadoEm: isoDateTime(r.criado_em),
+      })
+    );
+  }
+
+  /** Datas e horários dos check-outs de hoje (timeline de participação). */
+  async listarCheckoutsHoje(tenantId: string): Promise<Array<{ colaboradorId: string; criadoEm: string }>> {
+    const res = await this.pool.query(
+      `SELECT colaborador_id, criado_em FROM checkins_diarios
+       WHERE tenant_id = $1 AND tipo = 'check_out' AND data = $2
+       ORDER BY id ASC`,
+      [tenantId, this.today()]
+    );
+    return (res.rows as Array<{ colaborador_id: string; criado_em: Date }>).map(
+      (r) => ({
+        colaboradorId: r.colaborador_id,
+        criadoEm: isoDateTime(r.criado_em),
+      })
+    );
+  }
+
+  /** Todos os check-ins do tenant num período (série temporal agregada). */
+  async listarCheckInsPorPeriodo(
+    tenantId: string,
+    desde: string,
+    ate?: string
+  ): Promise<CheckInRecord[]> {
+    return this.listarPorPeriodo(tenantId, "check_in", desde, ate);
+  }
+
+  /** Todos os check-outs do tenant num período (série temporal agregada). */
+  async listarCheckOutsPorPeriodo(
+    tenantId: string,
+    desde: string,
+    ate?: string
+  ): Promise<CheckInRecord[]> {
+    return this.listarPorPeriodo(tenantId, "check_out", desde, ate);
+  }
+
+  private async listarPorPeriodo(
+    tenantId: string,
+    tipo: "check_in" | "check_out",
+    desde: string,
+    ate?: string
+  ): Promise<CheckInRecord[]> {
+    const res = await this.pool.query(
+      `SELECT * FROM checkins_diarios
+       WHERE tenant_id = $1 AND tipo = $2 AND data >= $3
+         AND ($4::date IS NULL OR data <= $4::date)
+       ORDER BY data ASC, id ASC`,
+      [tenantId, tipo, desde, ate ?? null]
+    );
+    return (res.rows as CheckInRow[]).map(toRecord);
   }
 }
 

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   calcularAderencia,
+  planejadosDoDia,
   resumoAderencia,
 } from "../src/bot/CheckInBot.js";
 
@@ -21,7 +22,7 @@ function checkInRecord(tarefas: string[]) {
 
 test("calcularAderencia: 100% de aderência quando tudo planejado foi concluído e nada ficou pendente", () => {
   const a = calcularAderencia(
-    checkInRecord(["A", "B"]),
+    ["A", "B"],
     ["A", "B"],
     []
   );
@@ -32,7 +33,7 @@ test("calcularAderencia: 100% de aderência quando tudo planejado foi concluído
 
 test("calcularAderencia: tarefa que consta como concluída e também como pendente é retirada das concluídas", () => {
   const a = calcularAderencia(
-    checkInRecord(["A", "B"]),
+    ["A", "B"],
     ["A", "B", "C"],
     ["C"]
   );
@@ -43,7 +44,7 @@ test("calcularAderencia: tarefa que consta como concluída e também como penden
 
 test("calcularAderencia: matching por similaridade ignora maiúsculas e espaços em excesso", () => {
   const a = calcularAderencia(
-    checkInRecord(["Relatório Mensal", "Reunião"]),
+    ["Relatório Mensal", "Reunião"],
     ["relatório mensal", "  Reunião  "],
     []
   );
@@ -53,7 +54,7 @@ test("calcularAderencia: matching por similaridade ignora maiúsculas e espaços
 
 test("calcularAderencia: tratando pendência não informada no check-in como fora do plano", () => {
   const a = calcularAderencia(
-    checkInRecord(["A"]),
+    ["A"],
     [],
     ["Tarefa nova"]
   );
@@ -62,21 +63,30 @@ test("calcularAderencia: tratando pendência não informada no check-in como for
 });
 
 test("calcularAderencia: sem plano definido, taxa é 0", () => {
-  const a = calcularAderencia(checkInRecord([]), ["A"], []);
+  const a = calcularAderencia([], ["A"], []);
   assert.deepEqual(a.concluidas, ["A"]);
   assert.deepEqual(a.pendentes, []);
 });
 
+test("planejadosDoDia: junta tarefas de múltiplos check-ins sem duplicar", () => {
+  const plano = planejadosDoDia([
+    checkInRecord(["A", "B"]),
+    checkInRecord(["B", "C"]),
+    checkInRecord([]),
+  ]);
+  assert.deepEqual(plano, ["A", "B", "C"]);
+});
+
 test("resumoAderencia: taxa de 50% quando metade das planejadas foram concluídas", () => {
   const msg = resumoAderencia(
-    calcularAderencia(checkInRecord(["A", "B"]), ["A"], [])
+    calcularAderencia(["A", "B"], ["A"], [])
   );
   assert.match(msg, /\*Taxa de aderência: 50%\*/);
 });
 
 test("resumoAderencia: aponta pendências fora do planejamento quando existem", () => {
   const msg = resumoAderencia(
-    calcularAderencia(checkInRecord(["A"]), [], ["Extra"])
+    calcularAderencia(["A"], [], ["Extra"])
   );
   assert.match(msg, /não estavam no planejamento/);
   assert.match(msg, /Extra/);
@@ -84,7 +94,7 @@ test("resumoAderencia: aponta pendências fora do planejamento quando existem", 
 
 test("resumoAderencia: não menciona pendências fora do plano quando não há", () => {
   const msg = resumoAderencia(
-    calcularAderencia(checkInRecord(["A"]), ["A"], [])
+    calcularAderencia(["A"], ["A"], [])
   );
   assert.doesNotMatch(msg, /não estavam no planejamento/);
 });

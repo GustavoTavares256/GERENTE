@@ -22,7 +22,13 @@ export class ConsoleConnector implements ChannelConnector {
     );
 
     while (true) {
-      const linha = await this.rl.question("você > ");
+      let linha: string;
+      try {
+        linha = await this.rl.question("você > ");
+      } catch {
+        break; // stdin fechou (EOF em uso via pipe) → encerra com elegância
+      }
+      if (linha === null) break;
       if (this.handler === null) continue;
       const text = linha.trim();
       if (!text) continue;
@@ -38,6 +44,8 @@ export class ConsoleConnector implements ChannelConnector {
         channel: this.name,
       });
     }
+    this.rl.close();
+    console.log("[Console] Entrada encerrada. Até a próxima!");
   }
 
   onMessage(handler: (msg: IncomingMessage) => Promise<void>): void {
