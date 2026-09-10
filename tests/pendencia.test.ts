@@ -57,11 +57,21 @@ test("detectarPendenciasRecorrentes: dias não consecutivos não formam streak",
   assert.equal(res.length, 0);
 });
 
-test("detectarPendenciasRecorrentes: com justificativa é marcada como justificada", () => {
+test("detectarPendenciasRecorrentes: dias com justificativa interrompem o streak", () => {
   const res = detectarPendenciasRecorrentes([
     co("2026-08-26", ["Bug A"], "aguardando cliente"),
     co("2026-08-27", ["Bug A"], "aguardando cliente"),
     co("2026-08-28", ["Bug A"], "aguardando cliente"),
+  ]);
+  assert.equal(res.length, 0);
+});
+
+test("detectarPendenciasRecorrentes: streak sem justificativa terminando em dia justificado é marcada como justificada", () => {
+  const res = detectarPendenciasRecorrentes([
+    co("2026-08-26", ["Bug A"], null),
+    co("2026-08-27", ["Bug A"], null),
+    co("2026-08-28", ["Bug A"], null),
+    co("2026-08-29", ["Bug A"], "aguardando cliente"),
   ]);
   assert.equal(res.length, 1);
   assert.equal(res[0].justificada, true);
@@ -202,14 +212,15 @@ test("/exportar-json: gestor recebe JSON estruturado", async () => {
 test("alerta proativo: gestor recebe aviso quando há pendência recorrente", async () => {
   const { store, conn } = await newBot(["gestor"]);
   try {
-    // semear 2 dias de pendência 'Bug X' para o colaborador 'bob'
-    for (const off of [-2, -1]) {
+    // semear 3 dias de pendência 'Bug X' sem justificativa para o colaborador 'bob'
+    for (const off of [-3, -2, -1]) {
       const dia = offsetDate(off);
       await store.seedRecord({ tenantId: "codxis", colaboradorId: "bob", data: dia, tipo: "check_out", tarefas: [], pendentes: ["Bug X"] });
     }
 
     // 'bob' faz check-in e check-out hoje pelo fluxo do bot (não é gestor)
-    // e deixa 'Bug X' pendente, completando a 3ª ocorrência consecutiva
+    // e deixa 'Bug X' pendente. O streak sem justificativa já atingiu 3 dias
+    // nos dias semeados; a justificativa de hoje não o interrompe.
     await conn.sayAs("bob", "/check-in");
     await conn.sayAs("bob", "T1, Bug X");
     await conn.sayAs("bob", "/check-out");

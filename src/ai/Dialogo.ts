@@ -17,6 +17,9 @@ const FALLBACK: Record<string, string> = {
   tarefas:
     "Quais são suas tarefas para hoje?\n" +
     "Digite uma por linha ou separadas por vírgula.",
+  tarefas_extra:
+    "Quais novas tarefas você quer adicionar ao check-in de hoje?\n" +
+    "Digite uma por linha ou separadas por vírgula.",
   concluidas:
     "O que você concluiu hoje?\n" +
     "Digite uma por linha ou separadas por vírgula.",

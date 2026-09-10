@@ -1,6 +1,7 @@
 import qrcode from "qrcode-terminal";
 import whatsapp from "whatsapp-web.js";
 import type WAWebJS from "whatsapp-web.js";
+import { createRequire } from "node:module";
 import {
   ChannelConnector,
   IncomingMessage,
@@ -10,6 +11,23 @@ import {
 type Client = WAWebJS.Client;
 type Message = WAWebJS.Message;
 
+const require = createRequire(import.meta.url);
+
+/** Caminho do Chrome for Testing baixado pelo puppeteer (se disponível). */
+function chromeExecutable(): string | undefined {
+  try {
+    const puppeteer = require("puppeteer") as {
+      executablePath?: () => string;
+    };
+    if (typeof puppeteer.executablePath === "function") {
+      return puppeteer.executablePath();
+    }
+  } catch {
+    // puppeteer não resolvido ou Chrome ainda não baixado → usa o padrão
+  }
+  return undefined;
+}
+
 export class WhatsAppConnector implements ChannelConnector {
   readonly name = "whatsapp";
   private client: Client;
@@ -17,13 +35,12 @@ export class WhatsAppConnector implements ChannelConnector {
 
   constructor() {
     const { Client, LocalAuth } = whatsapp;
+    const chromePath = chromeExecutable();
     this.client = new Client({
       authStrategy: new LocalAuth({ clientId: "gerente-codxis" }),
-      puppeteer: {
-        headless: true,
-        executablePath:
-          "C:\\Users\\gusta\\.cache\\puppeteer\\chrome\\win64-146.0.7680.31\\chrome-win64\\chrome.exe",
-      },
+      puppeteer: chromePath
+        ? { headless: true, executablePath: chromePath }
+        : { headless: true },
     });
 
     this.client.on("qr", (qr) => {

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gerente CODXIS — Conectar WhatsApp (UAZAPI)</title>
+<style>
+  :root { --navy:#0f2c4c; --blue:#1a4b8c; --white:#fff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background:var(--navy); color:var(--white);
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:24px;
+  }
+  .card {
+    background:#fff; color:#111; border-radius:18px;
+    padding:32px; max-width:480px; width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,.45); text-align:center;
+  }
+  h1 { font-size:22px; color:var(--navy); margin-bottom:4px; }
+  .sub { color:#555; font-size:13px; margin-bottom:20px; }
+  #qr-box {
+    width:250px; height:250px; margin:0 auto 16px;
+    border:3px solid var(--navy); border-radius:12px;
+    display:flex; align-items:center; justify-content:center;
+    background:#fafafa; overflow:hidden;
+  }
+  #qr-box img { width:100%; height:100%; object-fit:contain; }
+  .status { font-size:14px; font-weight:600; margin-bottom:16px; min-height:20px; }
+  .status.connecting { color:#b45309; }
+  .status.connected { color:#15803d; }
+  .status.error { color:#b91c1c; }
+  .btn {
+    background:var(--blue); color:#fff; border:none; border-radius:8px;
+    padding:10px 18px; font-size:14px; cursor:pointer; font-weight:600;
+  }
+  .btn:hover { background:var(--navy); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .hint { font-size:12px; color:#666; margin-top:14px; line-height:1.5; }
+  .config { margin-top:18px; text-align:left; border-top:1px solid #ddd; padding-top:14px; }
+  .config label { font-size:12px; color:#444; font-weight:600; }
+  .config input {
+    width:100%; padding:8px; margin:4px 0 10px; font-size:13px;
+    border:1px solid #ccc; border-radius:6px;
+  }
+  .config details { font-size:12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔗 Gerente CODXIS</h1>
+    <p class="sub">Conecte o WhatsApp para ativar o check-in/check-out dos turnos</p>
+
+    <div id="qr-box"><div id="qr-placeholder">Aguardando QR code…</div></div>
+
+    <div id="status" class="status connecting">Aguardando conexão…</div>
+
+    <button id="refresh" class="btn">🔄 Atualizar QR</button>
+    <button id="check" class="btn" style="background:#15803d">✔ Verificar conexão</button>
+
+    <p class="hint">
+      Com o celular → WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b>,
+      aponte a câmera para o QR acima.
+      Quando aparecer o nome do dispositivo, a instância está conectada e o bot já atua nos turnos.
+    </p>
+
+    <div class="config">
+      <details>
+        <summary>Configurações (avançado)</summary>
+        <label for="base">UAZAPI_BASE_URL</label>
+        <input id="base" value="https://free.uazapi.com" />
+        <label for="tok">UAZAPI_TOKEN (instância)</label>
+        <input id="tok" />
+        <button class="btn" id="save">Salvar e reconectar</button>
+      </details>
+    </div>
+  </div>
+
+<script>
+(function () {
+  // Pré-carrega o QR obtido no fluxo de conexão (token da instância atual).
+  const QR_EMBUTIDO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEAAQMAAABmvDolAAAABlBMVEX///8AAABVwtN+AAAE3UlEQVR42uyZMY60vNaEy3LgDG8A4W0QIHlLhGQmI+wtWSJgG0ZswGQEluvXoef79eqmw0tw7+fE0vQjTbc551SVwb/rf2spsuo47hE8Nu4FTdtbcj6TJ+MzQEQDhKqX3AKdX1h8TjC57aHeAlY2epsxoLpou2FSpQ+AqW0f9ieBDyPsEUPn50ZHVIDpZSCOHUxGD/LicQXFJbfPARGN29gBLP2Y9HKmfkwDGvzxLP42QNa2H/d1af5j+6MmfwfI0nF0ZZJzSHrGXdXM7R/N85cBFafqtk+HkF0EuZzFfFQJ5DY/BEBTHRGMqPoCMCnG8T5jM6v4DqBKsAc/amXVG9265PtUoI7LdngEAKasSa6zTb11EWeB5coMjPUtQC8sQB0C3GVJngUjSziTjKpHALVe6tg+bl2gt9zJNDSfvRjgPQDDRF7gegtAN0xVX8GtPI/tpx5+DSj55zGkIagjjmpldldQ61X1ewA8G/ToNOWX72SGp4sTk+dDgFqvDD9X4WD3Eiy3DD2fxWS+BNyius3wrC4GlgD4T+fns3g+Bej55BX29bLJzPDXeUTrSFV6q14CFGmPOHZ+scf26fxyFv/ZV3lAI58B4JfzuDsGmnM3BFXM7OIEyPYSoC8mQ1WmM/Wh0+Imsisgt1zxDOBvq1CBDE9VQiP1hcBi5vQWMBhxpBXhJD8sRhWTXZTiJp4BFC/oa0ye2cl8mAGMCZNKva0vAYCpjhnyyz2BUFufyaW2/uPiM8CA7LYZ+qo6QpG57UVxRF/VW4CfRdXVyrP09taBK6g4ifgBjwCK8ymiViZ5yAlT0xqKtrmI9BIAGAktnbglEfdZUTorZMes4iOAigFtD/kTepvkxC+7c0aL8Brw9dgqhpMRuwgrZ0bD8v8B5LcANMUfJX01jnPSPJM4zUkVjB1eAgb5PhZABcbb1PcBfoFjfgpAUMeWuS4SltS6qCJda+o9Dd8BVAzySTdAHdGqaE6SKprs+EnPABjMWfqQ/Ny0CFXPucW4F5NhPiq+BYDJf1Q0PLbseFlGyDjhZd1DAMIpuaEEtLC3xEGOo2rO6iVArWQBkl6yvtDBNOjDHWj8T5z8NQB/t0on8w/YYyDjCE20/h8P89cBVUAyy5bk2/G8bZLJ7hofA6bcfj9hFJsEtzH5+WS0wDsA9CJuNw3TvSGc5T4OAD+O9PfAnUTHisnKvcJKtHIOATraFwFyoyqwyWcxvQc/jovc0gGPAIqUGyhGSaJj8pf0MAYjhr++BMAvFRh3ymar+F6TyaWBzw8BigRgO0AsChBkDCYExQvpJQBeIlr+EffOEy0g8dQxu/gMAJP19ql+sdLDvO4THwzQ/9jFFwAvbndM3xnlYjgP0smcNPNDgFTUIb56gb6gimlchOKVdbR7fAe402JvOwSbzN1SYnoHw+Mf1fs1IKbruND5+/YUnvk7n2//+xKAO/TnbzlbyuTg7Na75PaHAADiiAZ89XX+qWUxnO4l4PuiB7w3u68L3DZ3QPMN448AEeLt9wJZSS+2APu6fMfES8DKBn7eI6om71tWn0nCkQ8CknnvFJglid4ye6dfxvcAfdk0BFG9OoAHP0mGJ8b9ISCi+d7Hy2VYhcwHed1xFqDDSwBZW880mJMbKwyPOLo4SSiuzwD/rv+e9X8DABBzdf7ks2XgAAAAAElFTkSuQmCC";
+  const DEFAULT_BASE = "https://free.uazapi.com";
+  const DEFAULT_TOKEN = "20528392-7b67-4f28-a347-501588e8901a";
+
+  const $ = (id) => document.getElementById(id);
+  const box = $("qr-box"), qrPlaceholder = $("qr-placeholder");
+  const statusEl = $("status");
+
+  // O token embutido é a referência (a instância é recriada com frequência no
+  // plano free). O usuário pode sobrescrever manualmente via form "Salvar".
+  let base = DEFAULT_BASE;
+  let token = DEFAULT_TOKEN;
+
+  $("base").value = base;
+  $("tok").value = token;
+
+  function showQr(dataUrl) {
+    qrPlaceholder.style.display = "none";
+    let img = box.querySelector("img");
+    if (!img) { img = document.createElement("img"); box.appendChild(img); }
+    img.src = dataUrl;
+  }
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = "status " + (kind || "connecting");
+  }
+
+  async function fetchStatus() {
+    if (!token) throw new Error("Token da instância não configurado.");
+    const res = await fetch(base.replace(/\/+$/, "") + "/instance/status", {
+      headers: { token },
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+
+  async function regenerate() {
+    setStatus("Gerando um novo QR…");
+    try {
+      const res = await fetch(base.replace(/\/+$/, "") + "/instance/connect", {
+        method: "POST",
+        headers: { token },
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const j = await res.json();
+      const qr = (j.instance && j.instance.qrcode) || (j.qrcode) || "";
+      if (qr) {
+        showQr(qr);
+        setStatus("Novo QR gerado. Aguardando escaneamento…", "connecting");
+      } else {
+        setStatus("Não veio um QR na resposta. Tente de novo.", "error");
+      }
+    } catch (e) {
+      setStatus("Erro ao gerar QR: " + e.message, "error");
+    }
+  }
+
+  async function check() {
+    setStatus("Verificando conexão…");
+    try {
+      const j = await fetchStatus();
+      const instance = j.instance || {};
+      const connected = !!(j.status && j.status.connected);
+      if (connected) {
+        setStatus("✅ Conectado! WhatsApp ativo.", "connected");
+      } else if (instance.qrcode) {
+        showQr(instance.qrcode);
+        setStatus("Aguardando escaneamento do QR…", "connecting");
+      } else {
+        setStatus("Instância em \"" + (instance.status || "?") + "\". Reinicie/atualize o QR.", "error");
+      }
+    } catch (e) {
+      setStatus("Erro ao consultar: " + e.message, "error");
+    }
+  }
+
+  function save() {
+    base = $("base").value.trim();
+    token = $("tok").value.trim();
+    localStorage.setItem("uazapi_base", base);
+    localStorage.setItem("uazapi_token", token);
+    setStatus("Configuração salva. Verificando…");
+    check();
+  }
+
+  $("refresh").onclick = regenerate;
+  $("check").onclick = check;
+  $("save").onclick = save;
+
+  if (QR_EMBUTIDO && QR_EMBUTIDO.indexOf("QUI_EMBUTIDO") === -1) {
+    showQr(QR_EMBUTIDO);
+  }
+
+  // Polling: atualiza status a cada 3s.
+  setInterval(() => { if (token) { check(); } }, 3000);
+})();
+</script>
+</body>
+</html>
