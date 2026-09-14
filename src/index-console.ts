@@ -14,8 +14,8 @@ const ids = (v?: string) =>
     .map((s) => s.trim())
     .filter(Boolean);
 
-const gestaoIds = ids(process.env.GESTAO_IDS);
-const funcionariosIds = ids(process.env.FUNCIONARIOS_IDS);
+const gestaoIds = [...ids(process.env.GESTAO_IDS), "console-local"];
+const funcionariosIds = [...ids(process.env.FUNCIONARIOS_IDS), "console-local"];
 
 const store = await CheckInStore.connect(databaseUrl);
 const bot = new CheckInBot(store, {

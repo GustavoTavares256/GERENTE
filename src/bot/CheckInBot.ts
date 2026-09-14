@@ -111,15 +111,12 @@ function parseList(text: string): string[] {
 }
 
 const COMANDOS = new Set([
-  "/check-in",
-  "/checkin",
-  "/check-out",
-  "/checkout",
+  "/E",
+  "/E",
+  "/S",
+  "/S",
   "/hoje",
   "/resumo",
-  "/relatorio",
-  "/exportar-csv",
-  "/exportar-json",
   "/sugestoes",
 ]);
 
@@ -408,19 +405,6 @@ export class CheckInBot {
         await connector.send({ to: c, text: corpo });
       })
     );
-
-    const ctx = await contextoEmpresa(this.store, this.tenantId);
-    const sugestoes = await sugestoesEmpresa(this.llm, ctx);
-    const msg = formatarSugestoes(
-      "🌙 *Fim do dia — próximos passos* (empresa):",
-      sugestoes
-    );
-    if (msg && this.gestaoIds.size > 0) {
-      for (const gestor of this.gestaoIds) {
-        await connector.send({ to: gestor, text: msg });
-      }
-    }
-
   }
 
   private isGestao(sender: string): boolean {
