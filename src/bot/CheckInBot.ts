@@ -463,6 +463,7 @@ export class CheckInBot {
 
     switch (cmd) {
       case "/entrada":
+      case "/e":
         {
           const jaFez = await this.store.hasCheckIn(this.tenantId, sender);
           this.flows.set(sender, { step: "checkin_tarefas" });
@@ -476,6 +477,7 @@ export class CheckInBot {
         return;
 
       case "/saida":
+      case "/s":
         if (!(await this.store.hasCheckIn(this.tenantId, sender))) {
           await connector.send({
             to: sender,
@@ -545,7 +547,7 @@ export class CheckInBot {
     await connector.send({
       to: sender,
       text:
-        "Comandos:\n/entrada — registrar tarefas do dia\n/saida — fechar o dia\n/hoje — ver resumo de hoje\n/sugestoes — próximos passos\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
+        "Comandos:\n/entrada (/e) — registrar tarefas do dia\n/saida (/s) — fechar o dia\n/hoje — ver resumo de hoje\n/sugestoes — próximos passos\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
     });
   }
 

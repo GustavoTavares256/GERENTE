@@ -177,8 +177,8 @@ O bot conversa pelo terminal (mesma máquina de estados e store PostgreSQL). Dig
 
 | Comando | Quem | Ação |
 |---|---|---|
-| `/entrada` | todos | Registra as tarefas planejadas do dia (múltiplos check-ins acumulam novas tarefas) |
-| `/saida` | todos | Fecha o dia: concluídas, pendentes, justificativa |
+| `/entrada` (`/e`) | todos | Registra as tarefas planejadas do dia (múltiplos check-ins acumulam novas tarefas) |
+| `/saida` (`/s`) | todos | Fecha o dia: concluídas, pendentes, justificativa |
 | `/hoje` (`/resumo`) | todos | Resumo de hoje (planejadas + aderência) |
 | `/sugestoes` | todos | Próximos passos: visão de empresa (gestão) ou individual (colaborador) |
 | `/relatorio` | **gestão** | Relatório agregado da gestão (capacidade, aderência, pendências recorrentes, últimos 7 dias) |

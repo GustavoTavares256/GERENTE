@@ -167,6 +167,23 @@ test("check-out 100% de aderência quando tudo foi concluído", async () => {
   }
 });
 
+test("abreviacoes: /e inicia o check-in e /s fecha o dia", async () => {
+  const { store, conn } = await newBot();
+  try {
+    await conn.say("/e");
+    assert.match(lastSent(conn), /Quais são suas tarefas/);
+    await conn.say("Tarefa A");
+
+    await conn.say("/s");
+    assert.match(lastSent(conn), /O que você concluiu/);
+    await conn.say("Tarefa A");
+    await conn.say("nenhuma");
+    assert.match(findSent(conn, /Saída registrada/), /Taxa de aderência/);
+  } finally {
+    await store.close();
+  }
+});
+
 test("trava de seguranca: remetente fora da lista e ignorado", async () => {
   const store = await connectTestStore("fluxo");
   const bot = new CheckInBot(store, {

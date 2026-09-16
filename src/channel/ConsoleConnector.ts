@@ -18,7 +18,7 @@ export class ConsoleConnector implements ChannelConnector {
     });
 
     console.log(
-      "[Console] Bot no console. Digite /entrada, /saida, /hoje ou cancelar.",
+      "[Console] Bot no console. Digite /entrada (/e), /saida (/s), /hoje ou cancelar.",
     );
 
     while (true) {
