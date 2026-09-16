@@ -1,8 +1,8 @@
-# Gerente da Codxis — Bot de Check-in/Check-out
+# Gerente da Codxis — Bot de Check-in/saida
 
 ## Visão geral
 
-Bot de IA externo que faz check-in/check-out diário de tarefas com colaboradores, registrando
+Bot de IA externo que faz entrada/saida diário de tarefas com colaboradores, registrando
 o histórico e calculando aderência (planejado vs. realizado). Não substitui o CRM — complementa,
 evitando que o colaborador digite a mesma tarefa duas vezes.
 
@@ -20,12 +20,12 @@ Bot externo (Node + TypeScript)
   ├── src/channel/ChannelConnector.ts    → interface de canal (agente independente do canal)
   ├── src/channel/WhatsAppConnector.ts   → conector WhatsApp (whatsapp-web.js, QR code)
   ├── src/channel/ConsoleConnector.ts    → conector de terminal (teste sem WhatsApp)
-  ├── src/bot/CheckInBot.ts              → máquina de estados check-in/check-out + aderência + alertas + sugestões
+  ├── src/bot/CheckInBot.ts              → máquina de estados entrada/saida + aderência + alertas + sugestões
   ├── src/store/CheckInStore.ts          → persistência PostgreSQL (pg)
   ├── src/report/gestao.ts               → agregação de dados de gestão (capacidade/aderência/recorrentes + CSV/JSON)
   ├── src/ai/LLMProvider.ts              → provedor LLM configurável (OpenAI-compatible) — opcional
   ├── src/ai/Sugestoes.ts                → gerador de sugestões inteligentes (LLM + fallback por regras)
-  ├── src/ai/Dialogo.ts                  → redator de perguntas guiadas via LLM (check-in/check-out)
+  ├── src/ai/Dialogo.ts                  → redator de perguntas guiadas via LLM (entrada/saida)
   ├── src/agendar/Scheduler.ts           → agendador de turnos automáticos (lembretes/cobranças)
   ├── src/agendar/turnos.ts              → definição dos turnos a partir de variáveis de ambiente
   ├── src/agendar/iniciar.ts             → bootstrap do agendador
@@ -49,8 +49,8 @@ concluídas em tarefas), aderência do período e pendências recorrentes. É us
 
 ## Fluxos
 
-- **Check-in (manhã)**: `/check-in` → "Quais são suas tarefas para hoje?" → registra lista + timestamp.
-- **Check-out (tarde)**: `/check-out` → "O que você concluiu?" → "O que ficou pendente?" → "Por quê?"
+- **Check-in (manhã)**: `/entrada` → "Quais são suas tarefas para hoje?" → registra lista + timestamp.
+- **Check-out (tarde)**: `/saida` → "O que você concluiu?" → "O que ficou pendente?" → "Por quê?"
 - **Adendo**: compara check-out (concluídas/pendentes) com check-in (planejadas) → taxa de aderência
   e pendências fora do planejamento.
 - **Pendência recorrente**: mesma tarefa pendente por 3+ check-outs seguidos sem justificativa →
@@ -106,7 +106,7 @@ Aderência calculada por agrupamento `(tenant_id, colaborador_id, data)`, compar
 
 1. `npm install` (dependências de produção: `whatsapp-web.js`, `qrcode-terminal`, `pg`)
 2. `npm run dev` → escaneia o QR com o celular (WhatsApp → Aparelhos conectados → Conectar aparelho)
-3. Envie mensagens para si mesmo: `/check-in`, depois `/check-out`, depois `/hoje`
+3. Envie mensagens para si mesmo: `/entrada`, depois `/saida`, depois `/hoje`
 
 ## Testar sem WhatsApp (console)
 
@@ -124,8 +124,8 @@ O bot conversa pelo terminal (mesma máquina de estados e store PostgreSQL). Dig
 
 | Comando | Quem | Ação |
 |---|---|---|
-| `/check-in` (`/checkin`) | todos | Registra as tarefas planejadas do dia (múltiplos check-ins acumulam novas tarefas) |
-| `/check-out` (`/checkout`) | todos | Fecha o dia: concluídas, pendentes, justificativa |
+| `/entrada` | todos | Registra as tarefas planejadas do dia (múltiplos check-ins acumulam novas tarefas) |
+| `/saida` | todos | Fecha o dia: concluídas, pendentes, justificativa |
 | `/hoje` (`/resumo`) | todos | Resumo de hoje (planejadas + aderência) |
 | `/sugestoes` | todos | Próximos passos: visão de empresa (gestão) ou individual (colaborador) |
 | `/relatorio` | **gestão** | Relatório agregado da gestão (capacidade, aderência, pendências recorrentes, últimos 7 dias) |
@@ -161,7 +161,7 @@ somente para os IDs **fixos** de `FUNCIONARIOS_IDS` (não faz descoberta no banc
 
 ## Conversa guiada com LLM
 
-O `CheckInBot` conduz o check-in/check-out seguindo um **roteiro fixo de tópicos** (ordem sempre
+O `CheckInBot` conduz o entrada/saida seguindo um **roteiro fixo de tópicos** (ordem sempre
 a mesma), mas o **LLM (ChatGPT) redige cada pergunta** de forma natural (`src/ai/Dialogo.ts`).
 - Ordem fixa: check-in pergunta as tarefas; check-out pergunta o que foi concluído, depois as
   pendências, depois o motivo/justificativa.
@@ -273,7 +273,7 @@ na seção de andamento. Para validar a lógica do bot sem depender do WhatsApp,
   check-out nos horários configurados, sem depender de comando, para a lista fixa `FUNCIONARIOS_IDS`
   + sugestões para a gestão no fim do expediente.
 - ✅ **Conversa guiada com LLM** (`src/ai/Dialogo.ts`): o gerente redige cada pergunta do
-  check-in/check-out via ChatGPT, seguindo um roteiro fixo de tópicos (uma pergunta por vez, com
+  entrada/saida via ChatGPT, seguindo um roteiro fixo de tópicos (uma pergunta por vez, com
   fallback offline por perguntas prontas — nunca gera loop).
 
 **Infra / arquitetura**
@@ -299,4 +299,4 @@ na seção de andamento. Para validar a lógica do bot sem depender do WhatsApp,
 - Autenticação no dashboard web antes de expô-lo em rede (hoje roda só em `127.0.0.1`, sem login).
 - Editar/remover tarefas registradas no check-in.
 - Resumo diário semanal por e-mail/relatório consolidado.
-- Notificações/lembretes de check-in/check-out para quem ainda não registrou.
+- Notificações/lembretes de entrada/saida para quem ainda não registrou.

@@ -330,7 +330,7 @@ export class CheckInBot {
 
   /** Turno manhã: lembra todos os colaboradores registrados de fazer o check-in. */
   /** Turno manhã: inicia a conversa guiada de check-in para todos os
-   *  colaboradores que ainda não registraram — sem exigir /check-in. */
+   *  colaboradores que ainda não registraram — sem exigir /entrada. */
   async lembrarCheckinTodos(connector: ChannelConnector): Promise<void> {
     const colaboradores = [...this.funcionariosIds];
     if (colaboradores.length === 0) return;
@@ -361,7 +361,7 @@ export class CheckInBot {
           text:
             "⚠️ *Check-in pendente!*\n\n" +
             "Você ainda não registrou suas tarefas de hoje.\n" +
-            "Envie /check-in para não perder o acompanhamento do dia.",
+            "Envie /entrada para não perder o acompanhamento do dia.",
         })
       )
     );
@@ -462,8 +462,7 @@ export class CheckInBot {
     if (!cmd.startsWith("/")) return;
 
     switch (cmd) {
-      case "/check-in":
-      case "/checkin":
+      case "/entrada":
         {
           const jaFez = await this.store.hasCheckIn(this.tenantId, sender);
           this.flows.set(sender, { step: "checkin_tarefas" });
@@ -476,19 +475,18 @@ export class CheckInBot {
         }
         return;
 
-      case "/check-out":
-      case "/checkout":
+      case "/saida":
         if (!(await this.store.hasCheckIn(this.tenantId, sender))) {
           await connector.send({
             to: sender,
-            text: "Você ainda não fez o check-in hoje. Use /check-in primeiro.",
+            text: "Você ainda não fez a entrada hoje. Use /entrada primeiro.",
           });
           return;
         }
         if (await this.store.hasCheckOut(this.tenantId, sender)) {
           await connector.send({
             to: sender,
-            text: "Você já fez o check-out hoje. Use /hoje para ver o resumo.",
+            text: "Você já fez a saída hoje. Use /hoje para ver o resumo.",
           });
           return;
         }
@@ -547,7 +545,7 @@ export class CheckInBot {
     await connector.send({
       to: sender,
       text:
-        "Comandos:\n/check-in — registrar tarefas do dia\n/check-out — fechar o dia\n/hoje — ver resumo de hoje\n/sugestoes — próximos passos\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
+        "Comandos:\n/entrada — registrar tarefas do dia\n/saida — fechar o dia\n/hoje — ver resumo de hoje\n/sugestoes — próximos passos\n/relatorio — relatório de gestão\n/exportar-csv ou /exportar-json — exportar dados (gestão)",
     });
   }
 
@@ -564,9 +562,9 @@ export class CheckInBot {
       await connector.send({
         to: sender,
         text:
-          `✅ Check-in registrado!\n` +
+          `✅ Entrada registrada!\n` +
           tarefas.map((t, i) => `${i + 1}. ${t}`).join("\n") +
-          `\n\nAo final do dia, use /check-out.`,
+          `\n\nAo final do dia, use /saida.`,
       });
       return;
     }
@@ -616,7 +614,7 @@ export class CheckInBot {
 
     const checkIns = await this.store.getCheckIns(this.tenantId, sender);
     if (checkIns.length === 0) {
-      await connector.send({ to: sender, text: "✅ Check-out registrado!" });
+      await connector.send({ to: sender, text: "✅ Saída registrada!" });
       return;
     }
 
@@ -632,7 +630,7 @@ export class CheckInBot {
     }
     await connector.send({
       to: sender,
-      text: "✅ Check-out registrado!\n\n" + resumoAderencia(aderencia),
+      text: "✅ Saída registrada!\n\n" + resumoAderencia(aderencia),
     });
 
     await this.verificarEAlertarPendenciasRecorrentes(connector);
@@ -686,7 +684,7 @@ export class CheckInBot {
     if (checkIns.length === 0) {
       await connector.send({
         to: sender,
-        text: "Nenhum check-in registrado hoje. Use /check-in.",
+        text: "Nenhuma entrada registrada hoje. Use /entrada.",
       });
       return;
     }
@@ -698,7 +696,7 @@ export class CheckInBot {
       .join("\n")}`;
 
     if (!checkOut) {
-      msg += `\n\nAinda não fez check-out. Use /check-out quando terminar.`;
+      msg += `\n\nAinda não fez a saída. Use /saida quando terminar.`;
     } else {
       const concluidas = JSON.parse(checkOut.tarefas) as string[];
       const pendentes = checkOut.pendentes

@@ -221,9 +221,9 @@ test("bot: não envia sugestão proativa após o check-out (só nos turnos)", as
     const conn = new FakeConnector();
     bot.onConnect(conn);
 
-    await conn.sayAs("ana", "/check-in");
+    await conn.sayAs("ana", "/entrada");
     await conn.sayAs("ana", "T1, Bug X");
-    await conn.sayAs("ana", "/check-out");
+    await conn.sayAs("ana", "/saida");
     await conn.sayAs("ana", "T1");
     await conn.sayAs("ana", "Bug X");
     await conn.sayAs("ana", "faltou tempo");

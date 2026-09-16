@@ -56,13 +56,13 @@ async function newBot(): Promise<{ store: CheckInStore; bot: CheckInBot; conn: F
 test("fluxo completo: check-in → check-out → /hoje", async () => {
   const { store, conn } = await newBot();
   try {
-    // /check-in pede as tarefas
-    await conn.say("/check-in");
+    // /entrada pede as tarefas
+    await conn.say("/entrada");
     assert.match(lastSent(conn), /Quais são suas tarefas/);
 
     // registra as tarefas
     await conn.say("Planejar sprint, Reunião");
-    assert.match(lastSent(conn), /Check-in registrado/);
+    assert.match(lastSent(conn), /Entrada registrada/);
     assert.match(lastSent(conn), /Planejar sprint/);
 
     // /hoje mostra o plano
@@ -70,8 +70,8 @@ test("fluxo completo: check-in → check-out → /hoje", async () => {
     assert.match(findSent(conn, /Planejadas/), /Planejadas/);
     assert.match(findSent(conn, /Planejadas/), /1\. Planejar sprint/);
 
-    // /check-out pede o que concluiu
-    await conn.say("/check-out");
+    // /saida pede o que concluiu
+    await conn.say("/saida");
     assert.match(lastSent(conn), /O que você concluiu/);
 
     // concluídas
@@ -80,8 +80,8 @@ test("fluxo completo: check-in → check-out → /hoje", async () => {
 
     // pendentes
     await conn.say("nenhuma");
-    assert.match(findSent(conn, /Check-out registrado/), /Check-out registrado/);
-    assert.match(findSent(conn, /Check-out registrado/), /Taxa de aderência/);
+    assert.match(findSent(conn, /Saída registrada/), /Saída registrada/);
+    assert.match(findSent(conn, /Saída registrada/), /Taxa de aderência/);
   } finally {
     await store.close();
   }
@@ -90,16 +90,16 @@ test("fluxo completo: check-in → check-out → /hoje", async () => {
 test("fluxo com pendência: check-out registra pendente e justificativa", async () => {
   const { store, conn } = await newBot();
   try {
-    await conn.say("/check-in");
+    await conn.say("/entrada");
     await conn.say("Tarefa A, Tarefa B");
 
-    await conn.say("/check-out");
+    await conn.say("/saida");
     await conn.say("Tarefa A");
     await conn.say("Tarefa B");
     await conn.say("faltou tempo");
 
-    const resumo = findSent(conn, /Check-out registrado/);
-    assert.match(resumo, /Check-out registrado/);
+    const resumo = findSent(conn, /Saída registrada/);
+    assert.match(resumo, /Saída registrada/);
     assert.match(resumo, /Pendentes: 1/);
     assert.match(resumo, /Taxa de aderência: 50%/);
   } finally {
@@ -110,8 +110,8 @@ test("fluxo com pendência: check-out registra pendente e justificativa", async 
 test("bloqueio: check-out antes de check-in é rejeitado", async () => {
   const { store, conn } = await newBot();
   try {
-    await conn.say("/check-out");
-    assert.match(lastSent(conn), /não fez o check-in/);
+    await conn.say("/saida");
+    assert.match(lastSent(conn), /não fez a entrada/);
   } finally {
     await store.close();
   }
@@ -120,13 +120,13 @@ test("bloqueio: check-out antes de check-in é rejeitado", async () => {
 test("bloqueio: segundo check-in no mesmo dia acumula tarefas no plano", async () => {
   const { store, conn } = await newBot();
   try {
-    await conn.say("/check-in");
+    await conn.say("/entrada");
     await conn.say("Tarefa A");
-    await conn.say("/check-in");
+    await conn.say("/entrada");
     assert.match(lastSent(conn), /adicionar ao check-in/);
 
     await conn.say("Tarefa B");
-    assert.match(findSent(conn, /Check-in registrado/), /Tarefa B/);
+    assert.match(findSent(conn, /Entrada registrada/), /Tarefa B/);
 
     await conn.say("/hoje");
     const resumo = findSent(conn, /Planejadas/);
@@ -140,13 +140,13 @@ test("bloqueio: segundo check-in no mesmo dia acumula tarefas no plano", async (
 test("cancelar aborta o fluxo em andamento", async () => {
   const { store, conn } = await newBot();
   try {
-    await conn.say("/check-in");
+    await conn.say("/entrada");
     await conn.say("cancelar");
     assert.match(lastSent(conn), /Cancelado/);
 
-    // agora /check-out deve reclamar que não há check-in
-    await conn.say("/check-out");
-    assert.match(lastSent(conn), /não fez o check-in/);
+    // agora /saida deve reclamar que não há entrada
+    await conn.say("/saida");
+    assert.match(lastSent(conn), /não fez a entrada/);
   } finally {
     await store.close();
   }
@@ -155,9 +155,9 @@ test("cancelar aborta o fluxo em andamento", async () => {
 test("check-out 100% de aderência quando tudo foi concluído", async () => {
   const { store, conn } = await newBot();
   try {
-    await conn.say("/check-in");
+    await conn.say("/entrada");
     await conn.say("A, B, C");
-    await conn.say("/check-out");
+    await conn.say("/saida");
     await conn.say("A, B, C");
     await conn.say("nenhuma");
 
@@ -177,7 +177,7 @@ test("trava de seguranca: remetente fora da lista e ignorado", async () => {
   bot.onConnect(conn);
   try {
     // colab-teste NAO esta na lista -> qualquer mensagem e ignorada
-    await conn.say("/check-in");
+    await conn.say("/entrada");
     await conn.say("qualquer coisa");
     assert.equal(conn.sent.length, 0);
   } finally {
@@ -194,7 +194,7 @@ test("trava de seguranca: permite quem esta na lista de funcionarios", async () 
   const conn = new FakeConnector();
   bot.onConnect(conn);
   try {
-    await conn.say("/check-in");
+    await conn.say("/entrada");
     assert.match(lastSent(conn), /Quais são suas tarefas/);
   } finally {
     await store.close();
