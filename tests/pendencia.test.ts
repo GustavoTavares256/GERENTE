@@ -221,9 +221,9 @@ test("alerta proativo: gestor recebe aviso quando há pendência recorrente", as
     // 'bob' faz check-in e check-out hoje pelo fluxo do bot (não é gestor)
     // e deixa 'Bug X' pendente. O streak sem justificativa já atingiu 3 dias
     // nos dias semeados; a justificativa de hoje não o interrompe.
-    await conn.sayAs("bob", "/check-in");
+    await conn.sayAs("bob", "/entrada");
     await conn.sayAs("bob", "T1, Bug X");
-    await conn.sayAs("bob", "/check-out");
+    await conn.sayAs("bob", "/saida");
     await conn.sayAs("bob", "T1");
     await conn.sayAs("bob", "Bug X");
     await conn.sayAs("bob", "faltou tempo");
